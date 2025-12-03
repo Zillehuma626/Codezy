@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ArrowRight, 
   Check, 
@@ -12,6 +12,7 @@ import {
   Award
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
 const HeroIllustration = () => (
@@ -25,7 +26,6 @@ const HeroIllustration = () => (
   </div>
 );
 
-// Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -53,9 +53,41 @@ const FeatureList = ({ items }) => (
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [currentPlan, setCurrentPlan] = useState(null); // <-- REAL PLAN FROM DB
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const role = localStorage.getItem('role');
+    const userId = localStorage.getItem('userId');
+
+    if (token && userId) {
+      setUser({ token, role, userId });
+
+      // FETCH REAL SUBSCRIBED PLAN FROM BACKEND
+      axios
+        .get(`http://localhost:5000/api/subscription/${userId}`)
+        .then((res) => {
+          setCurrentPlan(res.data.planName); // <-- expected: "Individual" or "Institutional"
+        })
+        .catch(() => {
+          setCurrentPlan(null);
+        });
+    }
+  }, []);
 
   const goToLogin = () => navigate('/login');
-  const goToSubscription = () => navigate('/subscription');
+
+  const goToSubscription = (plan) => {
+    navigate('/subscription', { state: { plan } });
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    setUser(null);
+    setCurrentPlan(null);
+    navigate('/');
+  };
 
   const individualFeatures = [
     "Self-paced interactive courses",
@@ -88,23 +120,46 @@ export default function LandingPage() {
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">Codezy</span>
           </div>
           <div className="flex items-center space-x-4">
-            <motion.button
-              onClick={goToLogin}
-              className="text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              Sign In
-            </motion.button>
+            {!user && (
+              <>
+                <motion.button
+                  onClick={goToLogin}
+                  className="text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Sign In
+                </motion.button>
 
-            <motion.button
-              onClick={goToLogin}
-              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all duration-300"
-              whileHover={{ scale: 1.05, y: -2 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              Get Started
-            </motion.button>
+                <motion.button
+                  onClick={goToLogin}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all duration-300"
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Get Started
+                </motion.button>
+              </>
+            )}
+
+            {user && (
+              <>
+                <motion.button
+                  className="text-gray-700 font-semibold hover:text-gray-900 transition-colors"
+                  whileHover={{ scale: 1.05 }}
+                >
+                  Profile
+                </motion.button>
+                <motion.button
+                  onClick={handleLogout}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all duration-300"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Log Out
+                </motion.button>
+              </>
+            )}
           </div>
         </div>
       </motion.nav>
@@ -112,7 +167,8 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-28">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          {/* Left - Text Content */}
+          
+          {/* Text */}
           <div className="space-y-6">
             <motion.h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 leading-tight" variants={itemVariants}>
               Empowering the Next <br />
@@ -121,25 +177,19 @@ export default function LandingPage() {
             </motion.h1>
 
             <motion.p className="text-lg text-gray-600 max-w-lg" variants={itemVariants}>
-              An intelligent platform for learning, teaching, and managing coding labs with AI assistance. Transform your coding education experience with personalized learning paths and real-time feedback.
+              An intelligent platform for learning, teaching, and managing coding labs with AI assistance.
             </motion.p>
             
             <motion.div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6 pt-4" variants={itemVariants}>
               <motion.button
                 onClick={goToLogin}
-                className="flex items-center space-x-3 bg-indigo-600 text-white px-8 py-3 rounded-full font-semibold text-lg shadow-xl shadow-indigo-500/40 hover:bg-indigo-700 transition-all duration-300"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                className="flex items-center space-x-3 bg-indigo-600 text-white px-8 py-3 rounded-full font-semibold text-lg shadow-xl"
               >
                 <span>Start Learning</span>
                 <ArrowRight size={20} />
               </motion.button>
 
-              <motion.button
-                className="flex items-center justify-center space-x-3 text-indigo-600 border-2 border-indigo-200 px-8 py-3 rounded-full font-semibold text-lg hover:bg-indigo-50 transition-colors"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
+              <motion.button className="flex items-center justify-center space-x-3 text-indigo-600 border-2 border-indigo-200 px-8 py-3 rounded-full font-semibold text-lg">
                 <span>Watch Demo</span>
               </motion.button>
             </motion.div>
@@ -158,7 +208,6 @@ export default function LandingPage() {
             </motion.div>
           </div>
 
-          {/* Right - Illustration */}
           <motion.div variants={itemVariants} className="relative hidden lg:block">
             <HeroIllustration />
           </motion.div>
@@ -168,21 +217,39 @@ export default function LandingPage() {
       {/* Pricing Section */}
       <section className="bg-gray-50 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          
           <motion.h2 className="text-4xl font-extrabold text-gray-900 mb-4" variants={itemVariants}>
             Choose Your Learning Path
           </motion.h2>
+
           <motion.p className="text-lg text-gray-600 mb-16 max-w-3xl mx-auto" variants={itemVariants}>
-            Whether you're an individual learner or an educational institution, we have the perfect plan to accelerate your coding journey.
+            Whether you're an individual learner or an institution, we have the perfect plan.
           </motion.p>
 
           <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-8" variants={containerVariants}>
-            {/* Pricing Card 1: Individual */}
-            <motion.div className="bg-white p-8 rounded-3xl shadow-xl border-t-8 border-indigo-600/50 hover:shadow-2xl transition-all duration-300" variants={itemVariants} whileHover={{ y: -5 }}>
+
+            {/* INDIVIDUAL */}
+            <motion.div
+              className={`bg-white p-8 rounded-3xl shadow-xl border-t-8 hover:shadow-2xl transition-all duration-300 relative ${
+                currentPlan === "Individual"
+                  ? "border-green-500"
+                  : "border-indigo-600/50"
+              }`}
+              variants={itemVariants}
+              whileHover={{ y: -5 }}
+            >
+              {currentPlan === "Individual" && (
+                <span className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md animate-pulse">
+                  Current Plan
+                </span>
+              )}
+
               <div className="flex items-center justify-center mb-6">
                 <Trophy size={48} className="text-indigo-600" />
               </div>
+
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Individual Subscription</h3>
-              <p className="text-gray-500 mb-8">Perfect for self-paced learners and coding enthusiasts</p>
+              <p className="text-gray-500 mb-8">Perfect for self-learners</p>
 
               <div className="mb-10">
                 <FeatureList items={individualFeatures} />
@@ -195,26 +262,45 @@ export default function LandingPage() {
               </p>
 
               <motion.button
-                onClick={goToSubscription}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                onClick={() => goToSubscription("Individual")}
+                disabled={currentPlan === "Individual"}
+                className={`w-full py-4 rounded-xl font-semibold text-lg shadow-lg ${
+                  currentPlan === "Individual"
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:shadow-xl"
+                }`}
               >
-                Continue
+                {currentPlan === "Individual" ? "Your Current Plan" : "Continue"}
               </motion.button>
             </motion.div>
 
-            {/* Pricing Card 2: Institutional (Most Popular) */}
-            <motion.div className="bg-white p-8 rounded-3xl shadow-xl border-t-8 border-purple-600 hover:shadow-2xl transition-all duration-300 relative" variants={itemVariants} whileHover={{ y: -5 }}>
-              <span className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md animate-pulse">
+            {/* INSTITUTIONAL */}
+            <motion.div
+              className={`bg-white p-8 rounded-3xl shadow-xl border-t-8 hover:shadow-2xl transition-all duration-300 relative ${
+                currentPlan === "Institutional"
+                  ? "border-green-500"
+                  : "border-purple-600"
+              }`}
+              variants={itemVariants}
+              whileHover={{ y: -5 }}
+            >
+              {currentPlan === "Institutional" && (
+                <span className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md animate-pulse">
+                  Current Plan
+                </span>
+              )}
+
+              <span className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
                 Most Popular
               </span>
+
               <div className="flex items-center justify-center mb-6 pt-4">
                 <Award size={48} className="text-purple-600" />
               </div>
+
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Institutional Subscription</h3>
-              <p className="text-gray-500 mb-8">Comprehensive solution for schools and organizations</p>
-              
+              <p className="text-gray-500 mb-8">For schools and organizations</p>
+
               <div className="mb-10">
                 <FeatureList items={institutionalFeatures} />
               </div>
@@ -226,55 +312,55 @@ export default function LandingPage() {
               </p>
 
               <motion.button
-                onClick={goToSubscription}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                onClick={() => goToSubscription("Institutional")}
+                disabled={currentPlan === "Institutional"}
+                className={`w-full py-4 rounded-xl font-semibold text-lg shadow-lg ${
+                  currentPlan === "Institutional"
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:shadow-xl"
+                }`}
               >
-                Continue
+                {currentPlan === "Institutional" ? "Your Current Plan" : "Continue"}
               </motion.button>
             </motion.div>
-          </motion.div>
-          
-          <motion.button className="mt-10 text-indigo-600 font-semibold border-b border-indigo-200 hover:text-indigo-800 transition-colors" variants={itemVariants}>
-            Compare All Plans
-          </motion.button>
 
+          </motion.div>
         </div>
       </section>
 
-      {/* 3. Features Section */}
+      {/* Feature Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
         <motion.h2 className="text-4xl font-extrabold text-gray-900 mb-4" variants={itemVariants}>
           Powered by Cutting-Edge Technology
         </motion.h2>
+
         <motion.p className="text-lg text-gray-600 mb-16 max-w-4xl mx-auto" variants={itemVariants}>
-          Experience the future of coding education with our innovative features
+          Experience the future of coding education.
         </motion.p>
 
         <motion.div className="grid grid-cols-1 md:grid-cols-3 gap-10" variants={containerVariants}>
-          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg transition-shadow duration-300" variants={itemVariants}>
+          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg" variants={itemVariants}>
             <div className="w-16 h-16 mx-auto bg-indigo-100 rounded-full flex items-center justify-center">
               <Cpu size={32} className="text-indigo-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">AI Assistant</h3>
-            <p className="text-gray-600">Get intelligent code suggestions and personalized learning recommendations.</p>
+            <p className="text-gray-600">Get code suggestions and personalized learning guidance.</p>
           </motion.div>
 
-          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg transition-shadow duration-300" variants={itemVariants}>
+          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg" variants={itemVariants}>
             <div className="w-16 h-16 mx-auto bg-pink-100 rounded-full flex items-center justify-center">
               <Users size={32} className="text-pink-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">Real-time Collaboration</h3>
-            <p className="text-gray-600">Code together with classmates and receive instant feedback from instructors.</p>
+            <p className="text-gray-600">Learn together with instant instructor feedback.</p>
           </motion.div>
 
-          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg transition-shadow duration-300" variants={itemVariants}>
+          <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg" variants={itemVariants}>
             <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
               <BarChart3 size={32} className="text-green-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">Advanced Analytics</h3>
-            <p className="text-gray-600">Track progress with detailed insights and performance metrics.</p>
+            <p className="text-gray-600">Track and measure learning progress.</p>
           </motion.div>
         </motion.div>
       </section>

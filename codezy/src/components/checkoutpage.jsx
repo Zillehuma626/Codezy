@@ -8,66 +8,48 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [userEmail, setUserEmail] = useState(null);
 
+  // Load selected plan and user info
   useEffect(() => {
     const planFromSession = sessionStorage.getItem("selectedPlan");
-    const userId = localStorage.getItem("userId");
+    const uid = localStorage.getItem("userId");
+    const email = localStorage.getItem("email");
 
-    if (!planFromSession || !userId) {
-      if (!userId) {
-        sessionStorage.setItem("redirectAfterLogin", "/cart");
-        navigate("/login");
-      } else {
-        navigate("/cart");
-      }
+    if (!planFromSession || !uid) {
+      sessionStorage.setItem("redirectAfterLogin", "/checkout");
+      navigate("/login");
       return;
     }
 
     setSelectedPlan(JSON.parse(planFromSession));
+    setUserId(uid);
+    setUserEmail(email);
   }, [navigate]);
 
-  if (!selectedPlan) return <div className="text-center p-20">Loading...</div>;
+  if (!selectedPlan || !userId) return <div className="text-center p-20">Loading...</div>;
 
   const plan = getPlanByName(selectedPlan.name);
   const price = selectedPlan.customPrice || plan.price;
   const tax = Math.round(price * 0.05);
   const total = price + tax;
-  const userId = localStorage.getItem("userId");
-  const userEmail = localStorage.getItem("email"); // Make sure email is saved on login
 
   const handlePayment = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
 
     try {
-      const planFromSession = sessionStorage.getItem("selectedPlan");
       const token = localStorage.getItem("token");
-
-      if (!planFromSession || !userId) {
-        sessionStorage.setItem("redirectAfterLogin", "/checkout");
-        if (!userId) {
-          navigate("/login");
-          return;
-        } else {
-          navigate("/cart");
-          return;
-        }
-      }
-
-      const selected = JSON.parse(planFromSession);
-
       const payload = {
-        planName: selected.name || "Unknown Plan",
+        planName: selectedPlan.name,
         userId,
-        successUrl: `${window.location.origin}/payment-success?plan=${selected.name}&amount=${total}&email=${userEmail}`,
-        cancelUrl: `${window.location.origin}/payment-cancel?plan=${selected.name}&amount=${total}&email=${userEmail}`,
+        successUrl: `${window.location.origin}/payment-success?plan=${selectedPlan.name}&amount=${total}&email=${userEmail}`,
+        cancelUrl: `${window.location.origin}/payment-cancel?plan=${selectedPlan.name}&amount=${total}&email=${userEmail}`,
       };
 
-      if (selected.priceId) {
-        payload.priceId = selected.priceId;
-      } else {
-        payload.amount = Math.round(Number(total));
-      }
+      if (selectedPlan.priceId) payload.priceId = selectedPlan.priceId;
+      else payload.amount = Math.round(Number(total));
 
       const { data } = await axios.post(
         `${import.meta.env.VITE_BACKEND_URL}/api/payments/create-checkout-session`,
@@ -79,7 +61,7 @@ export default function CheckoutPage() {
         }
       );
 
-      if (!data || !data.url) throw new Error("Invalid server response");
+      if (!data?.url) throw new Error("Invalid server response");
 
       // Redirect to Stripe Checkout
       window.location.href = data.url;

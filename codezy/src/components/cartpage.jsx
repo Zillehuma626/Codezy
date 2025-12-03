@@ -8,7 +8,6 @@ const CartPage = () => {
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   useEffect(() => {
-    // Restore plan from sessionStorage on page load/refresh
     const savedPlan = sessionStorage.getItem('selectedPlan');
     if (savedPlan) setSelectedPlan(JSON.parse(savedPlan));
   }, []);
@@ -32,24 +31,26 @@ const CartPage = () => {
   const isCustom = selectedPlan.name === 'Custom Plan';
 
   const subtotal = price;
-  const discount = 0; 
+  const discount = 0;
   const tax = Math.round(subtotal * 0.05);
   const total = subtotal + tax - discount;
 
   const handleProceedToCheckout = () => {
     const userId = localStorage.getItem('userId');
 
-    // Save selected plan in sessionStorage for checkout
+    // Always save the selected plan before leaving the page
     sessionStorage.setItem('selectedPlan', JSON.stringify(selectedPlan));
 
     if (!userId) {
-      // Save intended redirect to cart after login
+      // Save redirect path so login can send them back here
       sessionStorage.setItem('redirectAfterLogin', '/cart');
+
+      // Redirect to login page
       navigate('/login');
       return;
     }
 
-    // User is logged in, proceed to checkout
+    // User logged in → proceed
     navigate('/checkout');
   };
 
@@ -75,6 +76,7 @@ const CartPage = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
           {/* Item Details */}
           <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg border border-gray-100">
             <h2 className="text-xl font-semibold mb-6 border-b pb-3">Selected Plan</h2>
@@ -86,6 +88,7 @@ const CartPage = () => {
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">{plan.subtitle}</p>
               </div>
+
               <div className="text-right">
                 <p className="text-lg font-bold text-gray-800">
                   ${price}
@@ -144,6 +147,7 @@ const CartPage = () => {
               Proceed to Checkout
             </button>
           </div>
+
         </div>
       </div>
     </div>

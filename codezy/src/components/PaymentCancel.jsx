@@ -26,7 +26,7 @@ export default function PaymentCancel() {
           Retry Payment
         </button>
         <button
-          onClick={() => navigate("/plans")}
+          onClick={() => navigate("/subscription")}
           className="bg-gray-800 text-white px-5 py-3 rounded-lg"
         >
           Browse Plans
