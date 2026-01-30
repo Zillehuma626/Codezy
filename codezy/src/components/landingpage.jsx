@@ -2,14 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { 
   ArrowRight, 
   Check, 
-  Monitor, 
   GraduationCap, 
-  Zap, 
-  Cpu, 
-  Users, 
-  BarChart3,
+  Users,
   Trophy,
-  Award
+  Award,
+  Cpu,
+  BarChart3
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
@@ -54,32 +52,62 @@ const FeatureList = ({ items }) => (
 export default function LandingPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [currentPlan, setCurrentPlan] = useState(null); // <-- REAL PLAN FROM DB
+  const [currentPlan, setCurrentPlan] = useState(null);
 
+  // ---------------------------------------
+  // 🔥 Auto-redirect if logged in already
+  // ---------------------------------------
   useEffect(() => {
     const token = localStorage.getItem('token');
     const role = localStorage.getItem('role');
     const userId = localStorage.getItem('userId');
 
+    if (token && role) {
+      switch (role) {
+        case 'teacher':
+          navigate('/teacher');
+          return;
+        case 'student':
+          navigate('/student');
+          return;
+        case 'organization':
+          navigate('/admin');
+          return;
+        case 'individual_learner':
+          navigate('/learner');
+          return;
+        default:
+          break;
+      }
+    }
+
     if (token && userId) {
       setUser({ token, role, userId });
 
-      // FETCH REAL SUBSCRIBED PLAN FROM BACKEND
       axios
         .get(`http://localhost:5000/api/subscription/${userId}`)
-        .then((res) => {
-          setCurrentPlan(res.data.planName); // <-- expected: "Individual" or "Institutional"
-        })
-        .catch(() => {
-          setCurrentPlan(null);
-        });
+        .then((res) => setCurrentPlan(res.data.planName))
+        .catch(() => setCurrentPlan(null));
     }
   }, []);
 
-  const goToLogin = () => navigate('/login');
-
+  // ---------------------------------------
+  // 🔥 USER CLICKS PRICING PLAN -> SUBSCRIPTION
+  // ---------------------------------------
   const goToSubscription = (plan) => {
-    navigate('/subscription', { state: { plan } });
+    const normalizedPlanType = plan === "Institutional" ? "institution" : "individual";
+    localStorage.setItem("selectedPlanType", normalizedPlanType);
+    localStorage.setItem("redirectAfterLogin", "/subscription");
+
+    navigate('/subscription', { state: { planType: normalizedPlanType } });
+  };
+
+  // ---------------------------------------
+  // 🔥 NAVBAR SIGN-IN BUTTON → LOGIN → DASHBOARD
+  // ---------------------------------------
+  const goToLogin = () => {
+    localStorage.setItem("redirectAfterLogin", "/"); // return to landing if normal login
+    navigate('/login');
   };
 
   const handleLogout = () => {
@@ -112,13 +140,16 @@ export default function LandingPage() {
       animate="visible"
       variants={containerVariants}
     >
-      {/* Navbar */}
+
+      {/* NAVBAR */}
       <motion.nav className="sticky top-0 bg-white/90 backdrop-blur-sm shadow-md z-50" variants={itemVariants}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+          
           <div className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <span className="text-indigo-600">&lt;/&gt;</span>
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">Codezy</span>
           </div>
+
           <div className="flex items-center space-x-4">
             {!user && (
               <>
@@ -134,7 +165,7 @@ export default function LandingPage() {
                 <motion.button
                   onClick={goToLogin}
                   className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all duration-300"
-                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   Get Started
@@ -146,15 +177,13 @@ export default function LandingPage() {
               <>
                 <motion.button
                   className="text-gray-700 font-semibold hover:text-gray-900 transition-colors"
-                  whileHover={{ scale: 1.05 }}
                 >
                   Profile
                 </motion.button>
+
                 <motion.button
                   onClick={handleLogout}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all duration-300"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2 rounded-full font-semibold shadow-lg"
                 >
                   Log Out
                 </motion.button>
@@ -164,23 +193,33 @@ export default function LandingPage() {
         </div>
       </motion.nav>
 
-      {/* Hero Section */}
+      {/* HERO SECTION */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-28">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           
-          {/* Text */}
           <div className="space-y-6">
-            <motion.h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 leading-tight" variants={itemVariants}>
+            <motion.h1 
+              className="text-5xl md:text-6xl font-extrabold text-gray-900 leading-tight"
+              variants={itemVariants}
+            >
               Empowering the Next <br />
               Generation of 
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-600 ml-3">Coders</span>
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-600 ml-3">
+                Coders
+              </span>
             </motion.h1>
 
-            <motion.p className="text-lg text-gray-600 max-w-lg" variants={itemVariants}>
+            <motion.p 
+              className="text-lg text-gray-600 max-w-lg"
+              variants={itemVariants}
+            >
               An intelligent platform for learning, teaching, and managing coding labs with AI assistance.
             </motion.p>
-            
-            <motion.div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6 pt-4" variants={itemVariants}>
+
+            <motion.div 
+              className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6 pt-4"
+              variants={itemVariants}
+            >
               <motion.button
                 onClick={goToLogin}
                 className="flex items-center space-x-3 bg-indigo-600 text-white px-8 py-3 rounded-full font-semibold text-lg shadow-xl"
@@ -214,7 +253,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Pricing Section */}
+
+      {/* --------------------------------------
+            PRICING SECTION  
+      -------------------------------------- */}
       <section className="bg-gray-50 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           
@@ -228,7 +270,7 @@ export default function LandingPage() {
 
           <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-8" variants={containerVariants}>
 
-            {/* INDIVIDUAL */}
+            {/* INDIVIDUAL PLAN */}
             <motion.div
               className={`bg-white p-8 rounded-3xl shadow-xl border-t-8 hover:shadow-2xl transition-all duration-300 relative ${
                 currentPlan === "Individual"
@@ -273,6 +315,7 @@ export default function LandingPage() {
                 {currentPlan === "Individual" ? "Your Current Plan" : "Continue"}
               </motion.button>
             </motion.div>
+
 
             {/* INSTITUTIONAL */}
             <motion.div
@@ -328,7 +371,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Feature Section */}
+
+      {/* FEATURES SECTION */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
         <motion.h2 className="text-4xl font-extrabold text-gray-900 mb-4" variants={itemVariants}>
           Powered by Cutting-Edge Technology
@@ -344,7 +388,9 @@ export default function LandingPage() {
               <Cpu size={32} className="text-indigo-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">AI Assistant</h3>
-            <p className="text-gray-600">Get code suggestions and personalized learning guidance.</p>
+            <p className="text-gray-600">
+              Get code suggestions and personalized learning guidance.
+            </p>
           </motion.div>
 
           <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg" variants={itemVariants}>
@@ -352,7 +398,9 @@ export default function LandingPage() {
               <Users size={32} className="text-pink-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">Real-time Collaboration</h3>
-            <p className="text-gray-600">Learn together with instant instructor feedback.</p>
+            <p className="text-gray-600">
+              Learn together with instant instructor feedback.
+            </p>
           </motion.div>
 
           <motion.div className="space-y-4 p-6 rounded-2xl border border-gray-100 hover:shadow-lg" variants={itemVariants}>
@@ -360,7 +408,9 @@ export default function LandingPage() {
               <BarChart3 size={32} className="text-green-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900">Advanced Analytics</h3>
-            <p className="text-gray-600">Track and measure learning progress.</p>
+            <p className="text-gray-600">
+              Track and measure learning progress.
+            </p>
           </motion.div>
         </motion.div>
       </section>

@@ -10,6 +10,8 @@ import {
 } from "@heroicons/react/24/outline";
 import { plansData } from "../utils/plans";
 import SubscriptionImage from "../assets/subscription.png";
+import { useLocation } from "react-router-dom";
+
 
 const CodezyLogo = () => (
   <div className="flex items-center text-white text-lg font-semibold">
@@ -44,7 +46,14 @@ export default function SubscriptionPage() {
   const [customQuote, setCustomQuote] = useState(199);
   const [currentPlan, setCurrentPlan] = useState(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
+  const planType =
+    location.state?.planType?.toLowerCase() ||
+    localStorage.getItem("selectedPlanType") ||
+    "individual";
+
+  const filteredPlans = plansData.filter(plan => plan.type === planType);
   // -------------------------
   // Fetch CURRENT USER PLAN
   // -------------------------
@@ -102,22 +111,49 @@ export default function SubscriptionPage() {
   // -------------------------
   // Handle plan selection
   // -------------------------
-  const handleSelectPlan = (planName, customPrice = null) => {
-    const userId = localStorage.getItem("userId");
-    if (!userId) {
-      navigate("/login");
+  const handleSelectPlan = async (planName, customPrice = null) => {
+  const userId = localStorage.getItem("userId");
+  const token = localStorage.getItem("token");
+
+  // Save selected plan
+  localStorage.setItem("selectedPlanType", planType);
+  sessionStorage.setItem("selectedPlan", JSON.stringify({
+    name: planName,
+    customPrice: customPrice || plansData.find(p => p.name === planName)?.price,
+    planType,
+  }));
+
+  if (!userId) {
+    localStorage.setItem("redirectAfterLogin", "/subscription");
+    navigate("/login");
+    return;
+  }
+
+  try {
+    const tenantRes = await fetch(`http://localhost:5000/api/auth/get-tenant/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (tenantRes.status === 404) {
+      // Go to registration if no tenant exists
+      localStorage.setItem("redirectAfterLogin", "/subscription");
+      navigate("/institution/register");
       return;
     }
 
-    // Save selected plan in sessionStorage for Cart / Checkout
-    const selectedPlanObj = {
-      name: planName,
-      customPrice: customPrice || plansData.find((p) => p.name === planName)?.price
-    };
-    sessionStorage.setItem("selectedPlan", JSON.stringify(selectedPlanObj));
+    const tenantData = await tenantRes.json();
+    const tenantId = tenantData.tenantId;
 
-    navigate("/cart");
-  };
+    // ✅ Store tenantId and redirect to cart page instead of auto-subscribing
+    localStorage.setItem("pendingTenantId", tenantId);
+
+    navigate("/cart"); // <-- user now lands on cart page to complete subscription/payment
+  } catch (err) {
+    console.error("Error selecting plan:", err);
+    alert("Error processing subscription. Try again.");
+  }
+};
+
 
   const featureIcons = [
     { icon: UsersIcon, title: "Multi-Role Dashboards", description: "Dedicated interfaces for admins, teachers, and students." },
@@ -174,53 +210,57 @@ export default function SubscriptionPage() {
         <p className="text-center text-gray-600 mb-16 text-md">
           Flexible pricing options designed to scale with your institution
         </p>
+
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 px-8">
-          {plansData.map((plan) => (
-            <div
-              key={plan.name}
-              className={`bg-white rounded-xl p-8 shadow-xl relative transition transform hover:scale-[1.02] 
-                ${plan.isRecommended ? "border-4 border-indigo-600" : "border border-gray-200"}`}
-            >
-              {/* Recommended badge - top left */}
-              {plan.isRecommended && (
-                <span className="absolute -top-3 left-3 bg-gradient-to-r from-indigo-500 to-pink-500 text-white text-xs py-1 px-4 rounded-full font-semibold uppercase tracking-wider">
-                  Recommended
-                </span>
-              )}
-
-              {/* Current plan badge - top right */}
-              {currentPlan === plan.name && (
-                <span className="absolute -top-3 right-3 bg-green-600 text-white text-xs py-1 px-3 rounded-full font-semibold">
-                  CURRENT PLAN
-                </span>
-              )}
-
-              <h3 className="font-bold text-xl mb-1">{plan.name}</h3>
-              <p className="text-sm text-gray-500 mb-4">{plan.subtitle}</p>
-              <p className="text-5xl font-extrabold text-indigo-600 mb-6">
-                ${plan.price}
-                <span className="text-base font-normal text-gray-500">/month</span>
-              </p>
-
-              <ul className="space-y-3 mb-8">
-                {plan.features.map((f, i) => (
-                  <CheckListItem key={i}>{f}</CheckListItem>
-                ))}
-              </ul>
-
-              <button
-                onClick={() => handleSelectPlan(plan.name)}
-                className={`w-full font-semibold py-3 rounded-lg transition 
-                  ${plan.isRecommended
-                    ? "bg-gradient-to-br from-indigo-500 to-pink-500 text-white hover:from-indigo-600 hover:to-pink-600"
-                    : "bg-pink-50 text-indigo-600 border border-pink-200 hover:bg-pink-100"}`}
+          {filteredPlans
+            .map(plan => (
+              <div
+                key={plan.name}
+                className={`bg-white rounded-xl p-8 shadow-xl relative transition transform hover:scale-[1.02] 
+                  ${plan.isRecommended ? "border-4 border-indigo-600" : "border border-gray-200"}`}
               >
-                Continue
-              </button>
-            </div>
-          ))}
+                {/* Recommended badge */}
+                {plan.isRecommended && (
+                  <span className="absolute -top-3 left-3 bg-gradient-to-r from-indigo-500 to-pink-500 text-white text-xs py-1 px-4 rounded-full font-semibold uppercase tracking-wider">
+                    Recommended
+                  </span>
+                )}
+
+                {/* Current plan badge */}
+                {currentPlan === plan.name && (
+                  <span className="absolute -top-3 right-3 bg-green-600 text-white text-xs py-1 px-3 rounded-full font-semibold">
+                    CURRENT PLAN
+                  </span>
+                )}
+
+                <h3 className="font-bold text-xl mb-1">{plan.name}</h3>
+                <p className="text-sm text-gray-500 mb-4">{plan.subtitle}</p>
+                <p className="text-5xl font-extrabold text-indigo-600 mb-6">
+                  ${plan.price}
+                  <span className="text-base font-normal text-gray-500">/month</span>
+                </p>
+
+                <ul className="space-y-3 mb-8">
+                  {plan.features.map((f, i) => (
+                    <CheckListItem key={i}>{f}</CheckListItem>
+                  ))}
+                </ul>
+
+                <button
+                  onClick={() => handleSelectPlan(plan.name)}
+                  className={`w-full font-semibold py-3 rounded-lg transition 
+                    ${plan.isRecommended
+                      ? "bg-gradient-to-br from-indigo-500 to-pink-500 text-white hover:from-indigo-600 hover:to-pink-600"
+                      : "bg-pink-50 text-indigo-600 border border-pink-200 hover:bg-pink-100"}`}
+                >
+                  Continue
+                </button>
+              </div>
+            ))}
         </div>
       </section>
+
+
 
       {/* CUSTOM ESTIMATOR */}
       <section className="py-20">

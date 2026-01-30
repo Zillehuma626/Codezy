@@ -3,6 +3,12 @@ import bcrypt from "bcryptjs";
 
 const teacherSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true
+    },
     name: {
       type: String,
       required: [true, "Teacher name is required"],
@@ -16,60 +22,76 @@ const teacherSchema = new mongoose.Schema(
       lowercase: true,
       match: [/\S+@\S+\.\S+/, "Please use a valid email address"],
     },
-    password: {
-      type: String,
-      minlength: [6, "Password must be at least 6 characters"],
-      default: null, // allow backend to generate password if not provided
-    },
     role: {
       type: String,
-      required: [true, "Role/Department is required"],
+      required: [true, "Role/Position is required"],
       trim: true,
-    },
-    courses: {
-      type: [String],
-      default: [],
-      ref: "Course"
-    },
-    courseLoad: {
-      type: Number,
-      default: 0,
-      min: [0, "Course load cannot be negative"],
-    },
-    classes: {
-      type: [String],
-      default: [],
-    },
-    classesLoad: {
-      type: Number,
-      default: 0,
-      min: [0, "Classes load cannot be negative"],
     },
     department: {
       type: [String],
       default: [],
     },
-    students: {
-      type: Number,
-      default: 0,
-      min: [0, "Students cannot be negative"],
+    office: {
+      type: String,
+      default: "",
+      trim: true,
     },
+    joinDate: {
+      type: Date,
+      default: null,
+    },
+    bio: {
+      type: String,
+      default: "Professional Educator",
+      trim: true,
+    },
+    password: {
+      type: String,
+      minlength: [6, "Password must be at least 6 characters"],
+      default: null,
+    },
+
+    // Courses & Classes
+    courses: [{
+      type: [String],
+      default: [],
+      ref: "Course",
+    }], 
+    classes: {
+      type: [String],
+      default: [],
+    },
+
     status: {
       type: String,
       enum: ["Active", "On Leave"],
       default: "Active",
     },
+    // Add these to teacherSchema
+    twoFactorSecret: { type: String, default: null },
+    isTwoFactorEnabled: { type: Boolean, default: false },
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
   },
   { timestamps: true }
 );
+teacherSchema.index({ tenantId: 1, email: 1 }, { unique: true });
 
 // Hash password before saving, only if password is provided
 teacherSchema.pre("save", async function (next) {
-  if (!this.isModified("password") || !this.password) return next();
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+  if (!this.isModified("password")) return next();
+
+  if (!this.password || this.password.trim() === "") {
+    return next(new Error("Password cannot be empty"));
+  }
+
+  // Prevent double hashing
+  if (this.password.startsWith("$2")) return next();
+
+  this.password = await bcrypt.hash(this.password, 10);
   next();
 });
+
 
 // Handle unique email errors nicely
 teacherSchema.post("save", function (error, doc, next) {

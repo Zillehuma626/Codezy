@@ -7,6 +7,8 @@ import paymentRoutes from "./routes/payment.js";
 import subscriptionRoutes from "./routes/subscription.js";
 import teacherRoutes from "./routes/teacherRoutes.js";
 import courseRoutes from "./routes/courseRoutes.js";
+import studentRoutes from './routes/studentRoutes.js';
+import learnerRoutes from './routes/learnerRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -29,6 +31,8 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/courses", courseRoutes);
+app.use('/api/students', studentRoutes);
+app.use('/api/learners', learnerRoutes);
 // Database
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))

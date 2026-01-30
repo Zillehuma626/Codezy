@@ -1,643 +1,195 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { useNavigate } from "react-router-dom"; 
 import { 
-  BookOpen, 
-  FlaskConical, 
-  Award, 
-  TrendingUp, 
-  Users, 
-  Clock, 
-  Play,
-  Star,
-  Zap,
-  Sparkles,
-  Target,
-  ChevronRight,
-  Calendar,
-  FileText
+  Zap, Flame, Target, Tag, CheckCircle, 
+  Calendar, Clock, Play, BookOpen, LogOut
 } from 'lucide-react';
 
-const StudentDashboard = () => {
-  const [mounted, setMounted] = useState(false);
-  const [activeLab, setActiveLab] = useState(null);
-  const [stats, setStats] = useState({
-    courses: 0,
-    labs: 0,
-    xp: 0,
-    badges: 0
-  });
-  
-  // Refs for scrolling
-  const activeLabsRef = useRef(null);
-  const myCoursesRef = useRef(null);
+// Helper for Date & Time Formatting
+const formatDateTime = (dateString) => {
+  if (!dateString) return { date: "N/A", time: "N/A" };
+  const date = new Date(dateString);
+  return {
+    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    time: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  };
+};
+
+const fetchStudentData = async (studentId) => {
+  const response = await fetch(`http://localhost:5000/api/students/${studentId}/dashboard-data`);
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  return response.json();
+};
+
+const StudentDashboard = () => { 
+  const STUDENT_ID = localStorage.getItem('userId'); 
+  const navigate = useNavigate(); 
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [studentName, setStudentName] = useState(localStorage.getItem('fullName') || 'Student'); 
+  const [activeLabs, setActiveLabs] = useState([]);
+  const [stats, setStats] = useState({ xp: 0, streak: 5 });
 
   useEffect(() => {
-    setMounted(true);
-    
-    // Animate stats counting up
-    setTimeout(() => {
-      setStats({
-        courses: 8,
-        labs: 12,
-        xp: 2450,
-        badges: 5
-      });
-    }, 500);
-  }, []);
+    if (!STUDENT_ID) { navigate('/login'); return; }
 
-  const activeLabs = [
-    {
-      id: 1,
-      title: 'Python Data Structures',
-      course: 'Programming Fundamentals',
-      progress: 75,
-      dueDate: '2024-02-15',
-      icon: '🐍',
-      color: 'from-green-500 to-emerald-500'
-    },
-    {
-      id: 2,
-      title: 'React Component Lab',
-      course: 'Web Development',
-      progress: 40,
-      dueDate: '2024-02-20',
-      icon: '⚛️',
-      color: 'from-blue-500 to-cyan-500'
-    },
-    {
-      id: 3,
-      title: 'Database Queries',
-      course: 'Database Systems',
-      progress: 90,
-      dueDate: '2024-02-12',
-      icon: '🗄️',
-      color: 'from-purple-500 to-pink-500'
-    }
-  ];
+    const loadData = async () => {
+      try {
+        const data = await fetchStudentData(STUDENT_ID);
+        setStudentName(data.studentName || 'Student');
+        setActiveLabs(data.activeLabs || []);
+        setStats(prev => ({ ...prev, xp: data.xp || 0 }));
+        setIsLoading(false);
+      } catch (error) {
+        console.error("Dashboard data fetch error:", error);
+        setIsLoading(false);
+      }
+    };
+    loadData();
+  }, [STUDENT_ID, navigate]);
 
-  const courses = [
-    {
-      id: 1,
-      title: 'Programming Fundamentals',
-      instructor: 'Dr. Sarah Malik',
-      progress: 85,
-      icon: '💻',
-      color: 'from-blue-500 to-purple-500'
-    },
-    {
-      id: 2,
-      title: 'Data Structures & Algorithms',
-      instructor: 'Dr. Ali Ahmed',
-      progress: 60,
-      icon: '📊',
-      color: 'from-green-500 to-teal-500'
-    },
-    {
-      id: 3,
-      title: 'Web Development',
-      instructor: 'Dr. Rizwan Khan',
-      progress: 45,
-      icon: '🌐',
-      color: 'from-orange-500 to-red-500'
-    },
-    {
-      id: 4,
-      title: 'Database Systems',
-      instructor: 'Dr. Nida Shah',
-      progress: 30,
-      icon: '🗃️',
-      color: 'from-indigo-500 to-blue-500'
-    },
-    {
-      id: 5,
-      title: 'Machine Learning',
-      instructor: 'Dr. Farhan Ali',
-      progress: 20,
-      icon: '🤖',
-      color: 'from-pink-500 to-rose-500'
-    },
-    {
-      id: 6,
-      title: 'Mobile App Development',
-      instructor: 'Dr. Zainab Ahmed',
-      progress: 10,
-      icon: '📱',
-      color: 'from-cyan-500 to-blue-500'
-    }
-  ];
-
-  const badges = [
-    { id: 1, name: 'Quick Learner', icon: '⚡', color: 'from-yellow-500 to-amber-500' },
-    { id: 2, name: 'Code Master', icon: '👨‍💻', color: 'from-purple-500 to-indigo-500' },
-    { id: 3, name: 'Bug Hunter', icon: '🐛', color: 'from-green-500 to-emerald-500' },
-    { id: 4, name: 'Early Bird', icon: '🐦', color: 'from-blue-500 to-cyan-500' },
-    { id: 5, name: 'Perfect Score', icon: '🎯', color: 'from-red-500 to-pink-500' }
-  ];
-
-  // Scroll to sections
-  const scrollToActiveLabs = () => {
-    if (activeLabsRef.current) {
-      activeLabsRef.current.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'start'
-      });
-    }
+  // --- LOGOUT LOGIC ---
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate('/login');
   };
 
-  const scrollToMyCourses = () => {
-    if (myCoursesRef.current) {
-      myCoursesRef.current.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'start'
-      });
-    }
-  };
-
-  // Floating particles background effect
-  const FloatingParticles = () => (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {[...Array(20)].map((_, i) => (
-        <div
-          key={i}
-          className="absolute w-1 h-1 bg-indigo-300/20 rounded-full animate-float"
-          style={{
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            animationDelay: `${Math.random() * 8}s`,
-            animationDuration: `${20 + Math.random() * 15}s`
-          }}
-        />
-      ))}
+  if (isLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F8F9FD]">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-600 text-indigo-600"></div>
     </div>
   );
 
-  const statsVariants = {
-    hidden: { y: 50, opacity: 0, scale: 0.8 },
-    visible: (i) => ({
-      y: 0,
-      opacity: 1,
-      scale: 1,
-      transition: { delay: i * 0.1, type: 'spring', stiffness: 100 }
-    })
-  };
-
-  const cardVariants = {
-    hidden: { y: 30, opacity: 0 },
-    visible: (i) => ({
-      y: 0,
-      opacity: 1,
-      transition: { delay: i * 0.1, type: 'spring', stiffness: 100 }
-    })
-  };
-
-  const progressBarVariants = {
-    hidden: { width: 0 },
-    visible: (progress) => ({
-      width: `${progress}%`,
-      transition: { delay: 1, duration: 1.5, ease: 'easeOut' }
-    })
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/20 to-indigo-50/20 relative overflow-hidden">
-      {/* Navbar */}
-      <motion.nav
-        initial={{ y: -80, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="bg-white shadow-md border-b border-gray-200 sticky top-0 z-50"
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <motion.div
-                whileHover={{ rotate: 5, scale: 1.1 }}
-                className="text-indigo-600 font-bold text-xl flex items-center cursor-pointer"
-              >
-                <span className="text-2xl mr-1">&lt;/&gt;</span>
-                <span>Codezy</span>
-              </motion.div>
-            </div>
-            <div className="hidden md:flex space-x-8 font-medium">
-              <button 
-                onClick={scrollToActiveLabs}
-                className="hover:text-indigo-600 transition cursor-pointer"
-              >
-                Active Labs
-              </button>
-              <button 
-                onClick={scrollToMyCourses}
-                className="hover:text-indigo-600 transition cursor-pointer"
-              >
-                My Courses
-              </button>
-              <a href="/login" className="hover:text-indigo-600 transition">
-                Logout
-              </a>
-            </div>
+    <div className="min-h-screen bg-[#F8F9FD] pb-12 font-sans">
+      {/* Navigation Bar */}
+      <nav className="bg-white border-b border-gray-100 px-8 py-4 flex justify-between items-center sticky top-0 z-50">
+        <div className="flex items-center gap-8">
+          <div className="text-indigo-600 font-bold text-xl flex items-center gap-1 cursor-pointer" onClick={() => navigate('/student')}>
+            <span className="text-2xl font-black">&lt;/&gt;</span><span>Codezy</span>
+          </div>
+          <div className="flex gap-6 text-sm font-medium text-gray-500">
+            <button className="text-indigo-600 border-b-2 border-indigo-600 pb-1" onClick={() => navigate('/student')}>Dashboard</button>
+            <button className="hover:text-indigo-600 transition" onClick={() => navigate('/student/courses')}>My Courses</button>
+            <button className="hover:text-indigo-600 transition" onClick={() => navigate('/student/achievements')}>Achievements</button>
           </div>
         </div>
-      </motion.nav>
 
-      {/* Animated Background Elements */}
-      <FloatingParticles />
-      
-      {/* Gradient Orbs */}
-      <div className="absolute top-0 -left-20 w-80 h-80 bg-gradient-to-r from-cyan-400/10 to-blue-500/10 rounded-full blur-3xl animate-pulse-slow"></div>
-      <div className="absolute bottom-0 -right-20 w-96 h-96 bg-gradient-to-r from-purple-400/10 to-pink-500/10 rounded-full blur-3xl animate-pulse-slower"></div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-        {/* Welcome Banner */}
-        <motion.div
-          initial={{ y: -50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ type: 'spring', stiffness: 100 }}
-          className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-2xl p-8 text-white shadow-2xl mb-8 relative overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent transform -skew-x-12 -translate-x-full animate-shine"></div>
-          <div className="relative z-10">
-            <motion.h1 
-              className="text-3xl font-bold mb-2"
-              initial={{ x: -30, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-            >
-              Welcome back, Ahmed! 
-            </motion.h1>
-            <motion.p 
-              className="text-indigo-100 text-lg"
-              initial={{ x: -30, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-            >
-              Ready to level up your coding skills today?
-            </motion.p>
-          </div>
-          <motion.div
-            className="absolute top-4 right-4"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
+        {/* PROFILE & LOGOUT SECTION */}
+        <div className="flex items-center gap-6">
+          <button 
+            onClick={() => navigate('/student/profile')} 
+            className="flex items-center gap-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 p-2 rounded-xl transition-all border border-transparent hover:border-gray-100"
           >
-            <Sparkles className="text-yellow-300" size={32} />
-          </motion.div>
-        </motion.div>
+            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold uppercase border border-indigo-200">
+              {studentName.charAt(0)}
+            </div>
+            <div className="text-left hidden sm:block">
+                <p className="leading-none">{studentName}</p>
+                <p className="text-[10px] text-gray-400 font-medium mt-1 uppercase tracking-wider">View Profile</p>
+            </div>
+          </button>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {[
-            { 
-              title: 'Total Courses', 
-              value: stats.courses, 
-              icon: BookOpen, 
-              color: 'from-blue-500 to-cyan-500',
-              change: '+2'
-            },
-            { 
-              title: 'Active Labs', 
-              value: stats.labs, 
-              icon: FlaskConical, 
-              color: 'from-emerald-500 to-green-500',
-              change: '+3'
-            },
-            { 
-              title: 'XP Points', 
-              value: stats.xp, 
-              icon: TrendingUp, 
-              color: 'from-purple-500 to-pink-500',
-              change: '+150'
-            },
-            { 
-              title: 'Badges Earned', 
-              value: stats.badges, 
-              icon: Award, 
-              color: 'from-amber-500 to-orange-500',
-              change: '+1'
-            }
-          ].map((stat, index) => (
-            <motion.div
-              key={stat.title}
-              custom={index}
-              variants={statsVariants}
-              initial="hidden"
-              animate="visible"
-              whileHover={{ scale: 1.05, y: -5 }}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20 hover:shadow-xl transition-all duration-300 group"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-3 rounded-xl bg-gradient-to-r ${stat.color} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                  <stat.icon className="text-white" size={24} />
-                </div>
-                <div className="flex items-center gap-1 text-emerald-600 text-sm font-semibold">
-                  <TrendingUp size={14} />
-                  <span>{stat.change}</span>
-                </div>
-              </div>
-              <motion.p 
-                className="text-2xl font-bold text-gray-900 mb-1"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: index * 0.1 + 0.5 }}
-              >
-                {stat.value}
-              </motion.p>
-              <p className="text-gray-600 text-sm">{stat.title}</p>
-            </motion.div>
-          ))}
+          <div className="h-6 w-px bg-gray-200 hidden md:block"></div>
+
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-gray-500 hover:text-rose-600 transition-colors font-bold text-sm"
+          >
+            <LogOut size={18} />
+            <span className="hidden sm:inline">Logout</span>
+          </button>
+        </div>
+      </nav>
+
+      <div className="max-w-7xl mx-auto px-8 mt-8">
+        {/* Banner with Progress Metrics */}
+        <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-3xl p-10 text-white flex justify-between items-center shadow-2xl mb-10 relative overflow-hidden">
+          <div className="relative z-10">
+            <h1 className="text-4xl font-extrabold mb-2">Welcome back, {studentName}! 👋</h1>
+            <p className="text-indigo-100 text-lg opacity-90">Manage your active assignments and track your progress.</p>
+          </div>
+          <div className="flex gap-4 relative z-10">
+            <div className="bg-white/10 backdrop-blur-md p-5 rounded-2xl min-w-[140px] border border-white/10 text-center">
+              <div className="flex items-center justify-center gap-2 text-xs font-bold text-yellow-300 uppercase tracking-wider"><Zap size={16} fill="currentColor" /> Total XP</div>
+              <div className="text-3xl font-black mt-1">{stats.xp.toLocaleString()}</div>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md p-5 rounded-2xl min-w-[140px] border border-white/10 text-center">
+              <div className="flex items-center justify-center gap-2 text-xs font-bold text-orange-400 uppercase tracking-wider"><Flame size={16} fill="currentColor" /> Active Labs</div>
+              <div className="text-3xl font-black mt-1">{activeLabs.filter(l => l.status !== 'Completed').length}</div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column - Active Labs & Courses */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Active Labs Section */}
-            <motion.div
-              ref={activeLabsRef}
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.4 }}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20"
-            >
-              <div className="p-6 border-b border-gray-200/50">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Zap className="text-yellow-500" size={24} />
-                  Active Labs
-                </h2>
-                <p className="text-gray-600 text-sm mt-1">Continue where you left off</p>
-              </div>
-              
-              <div className="p-6 space-y-4">
-                {activeLabs.map((lab, index) => (
-                  <motion.div
-                    key={lab.id}
-                    custom={index}
-                    variants={cardVariants}
-                    initial="hidden"
-                    animate="visible"
-                    whileHover={{ scale: 1.02, x: 5 }}
-                    onHoverStart={() => setActiveLab(lab.id)}
-                    onHoverEnd={() => setActiveLab(null)}
-                    className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
-                      activeLab === lab.id 
-                        ? 'border-indigo-300 bg-indigo-50/50 shadow-md' 
-                        : 'border-gray-200/50 hover:border-indigo-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <motion.span 
-                          className="text-2xl"
-                          whileHover={{ scale: 1.2, rotate: 10 }}
-                        >
-                          {lab.icon}
-                        </motion.span>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{lab.title}</h3>
-                          <p className="text-gray-600 text-sm">{lab.course}</p>
-                        </div>
-                      </div>
-                      <motion.div
-                        whileHover={{ scale: 1.1 }}
-                        className="flex items-center gap-1 text-gray-500 text-sm"
-                      >
-                        <Calendar size={14} />
-                        <span>Due {lab.dueDate}</span>
-                      </motion.div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 mr-4">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-600">Progress</span>
-                          <span className="font-semibold text-gray-900">{lab.progress}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                          <motion.div
-                            custom={lab.progress}
-                            variants={progressBarVariants}
-                            initial="hidden"
-                            animate="visible"
-                            className={`h-2 rounded-full bg-gradient-to-r ${lab.color} shadow-lg`}
-                          />
-                        </div>
-                      </div>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:shadow-lg transition-all duration-300 flex items-center gap-2 text-sm font-semibold"
-                      >
-                        <Play size={14} />
-                        Continue
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
+        {/* Labs Section - Displays Dynamic Lab Cards */}
+        <div className="mt-8">
+          <h2 className="text-xl font-extrabold text-gray-800 mb-8">Lab Progress & Assignments</h2>
+          <div className="space-y-5">
+            {activeLabs.length > 0 ? activeLabs.map((lab, i) => {
+              const { date, time } = formatDateTime(lab.dueDate);
+              const isCompleted = lab.status === 'Completed';
 
-            {/* My Courses Section */}
-            <motion.div
-              ref={myCoursesRef}
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.6 }}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20"
-            >
-              <div className="p-6 border-b border-gray-200/50">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <BookOpen className="text-indigo-600" size={24} />
-                  My Courses
-                </h2>
-                <p className="text-gray-600 text-sm mt-1">Your learning journey</p>
-              </div>
-              
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {courses.map((course, index) => (
-                    <motion.div
-                      key={course.id}
-                      custom={index}
-                      variants={cardVariants}
-                      initial="hidden"
-                      animate="visible"
-                      whileHover={{ scale: 1.03, y: -5 }}
-                      className="bg-white border border-gray-200/50 rounded-xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 group"
-                    >
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <motion.span 
-                            className="text-2xl"
-                            whileHover={{ scale: 1.3, rotate: 360 }}
-                            transition={{ duration: 0.5 }}
-                          >
-                            {course.icon}
-                          </motion.span>
-                          <div>
-                            <h3 className="font-bold text-gray-900 group-hover:text-indigo-700 transition-colors">
-                              {course.title}
-                            </h3>
-                            <p className="text-gray-600 text-sm">{course.instructor}</p>
-                          </div>
-                        </div>
-                        <motion.div
-                          whileHover={{ scale: 1.2 }}
-                          className="text-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                        >
-                          <ChevronRight className="text-indigo-600" />
-                        </motion.div>
-                      </div>
-                      
-                      <div className="mb-4">
-                        <div className="flex justify-between text-sm mb-2">
-                          <span className="text-gray-600">Progress</span>
-                          <span className="font-semibold text-gray-900">{course.progress}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                          <motion.div
-                            custom={course.progress}
-                            variants={progressBarVariants}
-                            initial="hidden"
-                            animate="visible"
-                            className={`h-2 rounded-full bg-gradient-to-r ${course.color} shadow-lg`}
-                          />
-                        </div>
-                      </div>
-                      
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="w-full bg-gradient-to-r from-gray-100 to-white text-gray-700 hover:text-indigo-700 border border-gray-300 hover:border-indigo-300 px-4 py-3 rounded-lg hover:shadow-md transition-all duration-300 font-semibold text-sm"
-                      >
-                        View Course
-                      </motion.button>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Right Column - XP & Badges */}
-          <div className="space-y-8">
-            {/* XP Progress */}
-            <motion.div
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.5 }}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6"
-            >
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Target className="text-green-600" size={24} />
-                Level Progress
-              </h2>
-              
-              <div className="text-center mb-6">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: 0.8, type: 'spring' }}
-                  className="w-20 h-20 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold text-2xl mx-auto mb-3 shadow-lg"
+              return (
+                <motion.div 
+                  key={lab._id} 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  className={`bg-white rounded-2xl p-6 shadow-sm border-2 transition-all ${
+                    isCompleted ? 'border-green-50 bg-green-50/5' : 'border-transparent hover:border-indigo-100'
+                  }`}
                 >
-                  15
-                </motion.div>
-                <p className="text-gray-600 text-sm">Current Level</p>
-              </div>
-              
-              <div className="mb-4">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-600">XP to next level</span>
-                  <span className="font-semibold text-gray-900">550/1000</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: '55%' }}
-                    transition={{ delay: 1, duration: 1.5 }}
-                    className="h-3 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 shadow-lg"
-                  />
-                </div>
-              </div>
-              
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.2 }}
-                className="flex justify-between text-sm text-gray-600"
-              >
-                <span>Level 15</span>
-                <span>Level 16</span>
-              </motion.div>
-            </motion.div>
+                  <div className="flex justify-between items-center">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className={`font-bold text-lg ${isCompleted ? 'text-gray-400' : 'text-gray-900'}`}>{lab.title}</h3>
+                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 ${
+                          isCompleted ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'
+                        }`}>
+                          {isCompleted ? <><CheckCircle size={12} /> Completed</> : 'Pending'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 mb-4">
+                        <Tag size={12} className="fill-indigo-100" /> {lab.course} • {lab.courseCode}
+                      </div>
 
-            {/* Badges Section */}
-            <motion.div
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.7 }}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6"
-            >
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Award className="text-yellow-600" size={24} />
-                Earned Badges
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-4">
-                {badges.map((badge, index) => (
-                  <motion.div
-                    key={badge.id}
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: index * 0.1 + 0.8, type: 'spring' }}
-                    whileHover={{ scale: 1.1, y: -5 }}
-                    className="text-center group cursor-pointer"
-                  >
-                    <motion.div
-                      className={`w-16 h-16 bg-gradient-to-r ${badge.color} rounded-2xl flex items-center justify-center text-2xl mx-auto mb-2 shadow-lg group-hover:shadow-xl transition-all duration-300`}
-                      whileHover={{ rotate: 360 }}
-                      transition={{ duration: 0.5 }}
-                    >
-                      {badge.icon}
-                    </motion.div>
-                    <p className="text-sm font-semibold text-gray-900">{badge.name}</p>
-                  </motion.div>
-                ))}
+                      <div className="flex items-center gap-8 text-[11px] font-bold">
+                        <div className="text-gray-500 flex items-center gap-1.5 uppercase tracking-wide">
+                          <Target size={14} className={isCompleted ? "text-gray-400" : "text-emerald-500"} /> {lab.marks || 0} Marks
+                        </div>
+                        <div className="flex items-center gap-1.5 text-gray-400 uppercase tracking-wide"><Calendar size={14} /> Due: {date}</div>
+                        <div className="flex items-center gap-1.5 text-gray-400 uppercase tracking-wide"><Clock size={14} /> Time: {time}</div>
+                      </div>
+                    </div>
+
+                    {!isCompleted ? (
+                      <button 
+                        onClick={() => navigate(`/lab-session/${lab._id}`)}
+                        className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 flex items-center gap-2 transition-all active:scale-95"
+                      >
+                        <Play size={14} fill="currentColor" /> Start Lab
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => navigate(`/lab-results/${lab._id}`)}
+                        className="bg-white border border-gray-200 text-gray-600 px-8 py-3 rounded-2xl font-bold text-xs hover:bg-gray-50 transition-all active:scale-95"
+                      >
+                        View Details
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            }) : (
+              <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200 text-gray-400 font-bold">
+                No active labs found.
               </div>
-              
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.5 }}
-                whileHover={{ scale: 1.05 }}
-                className="w-full mt-6 bg-gradient-to-r from-gray-100 to-white text-gray-700 border border-gray-300 hover:border-indigo-300 px-4 py-3 rounded-lg hover:shadow-md transition-all duration-300 font-semibold text-sm"
-              >
-                View All Badges
-              </motion.button>
-            </motion.div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Add custom CSS for animations */}
-      <style jsx>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(180deg); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 0.5; }
-          50% { opacity: 0.8; }
-        }
-        @keyframes pulse-slower {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.6; }
-        }
-        @keyframes shine {
-          0% { transform: translateX(-100%) skewX(-12deg); }
-          100% { transform: translateX(200%) skewX(-12deg); }
-        }
-        .animate-float { animation: float 25s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
-        .animate-pulse-slower { animation: pulse-slower 6s ease-in-out infinite; }
-        .animate-shine { animation: shine 3s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 };

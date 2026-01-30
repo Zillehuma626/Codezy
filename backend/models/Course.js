@@ -1,87 +1,157 @@
 import mongoose from "mongoose";
 
-// --- 1. Nested Schemas for Complex Lab Details ---
-
-// Test Case Schema
 const testCaseSchema = new mongoose.Schema({
-  id: { type: Number, required: true },
-  input: { type: String, default: '' },
-  expectedOutput: { type: String, default: '' },
-  comparisonMode: { 
-    type: String, 
-    enum: ['Exact', 'IgnoreWhitespace', 'Regex'], 
-    default: 'Exact' 
-  },
-  notes: { type: String, default: '' },
-  isHidden: { type: Boolean, default: false } // Hidden test case for grading
-}, { _id: false }); // Use the client-generated 'id' for array access
+    // Client-side IDs are included for tracking in frontend state
+    id: { type: Number, required: true },
+    input: { type: String, default: '' },
+    expectedOutput: { type: String, default: '' },
+    comparisonMode: { 
+        type: String, 
+        enum: ['Exact', 'IgnoreWhitespace', 'Regex'], 
+        default: 'Exact' 
+    },
+    notes: { type: String, default: '' },
+    isHidden: { type: Boolean, default: false } 
+}, { _id: false }); // Prevents Mongoose from creating its own _id
 
-// Code Constraints Schema
-const codeConstraintsSchema = new mongoose.Schema({
-  required: [String], // Array of strings for required constructs (e.g., 'for loop')
-  forbidden: [String] // Array of strings for forbidden constructs (e.g., 'recursion')
+// --- Sub-Schema: Structured Code Constraint ---
+const specificConstraintSchema = new mongoose.Schema({
+    id: { type: Number, required: true },
+    type: { 
+        type: String, 
+        enum: ['Required', 'Forbidden'], 
+        required: true 
+    },
+    construct: { 
+        type: String, 
+        required: true 
+    }, // e.g., 'for loop', 'Recursion'
+    specifics: {
+        minDepth: { type: Number, default: 0 },
+        maxDepth: { type: Number, default: 0 },
+    },
 }, { _id: false });
 
-// Task Schema
+// --- Sub-Schema: Task ---
 const taskSchema = new mongoose.Schema({
-  id: { type: Number, required: true },
-  title: { type: String, required: true },
-  marks: { type: Number, required: true },
-  description: { type: String },
-  testCases: [testCaseSchema], // Embed Test Cases
-  codeConstraints: { type: codeConstraintsSchema, default: () => ({}) } // Embed Constraints
-}, { _id: false }); // Use the client-generated 'id' for array access
+    id: { type: Number, required: true },
+    title: { type: String, required: true },
+    marks: { type: Number, required: true },
+    description: { type: String },
+    // Functional Constraints (Array of sub-documents)
+    testCases: [testCaseSchema], 
+    // Structural Constraints (Array of sub-documents)
+    codeConstraints: {
+        type: [specificConstraintSchema],
+        default: [] 
+    }
+}, { _id: false });
 
-// --- 2. Expanded Lab Schema ---
+// -----------------------------------------------
+// 2. EXPANDED LAB SCHEMA
+// -----------------------------------------------
 
-// Lab schema (Expanded)
 const labSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  // Original marks field is kept, but its usage will be for the total of all tasks.
-  marks: { type: Number, required: true }, 
-  // Keep duration as string, or consider using separate date/time fields for better querying.
-  duration: { type: String, required: true }, 
-  
-  // NEW COMPLEX FIELDS
-  description: { type: String },
-  instructions: { type: String },
-  difficulty: { 
-    type: String, 
-    enum: ["Easy", "Medium", "Hard"], 
-    default: "Medium" 
-  },
-  dueDate: { type: Date }, // Separate field for better date handling
-  dueTime: { type: String }, // Separate field for time
-  
-  tasks: [taskSchema] // Embed Tasks
+    title: { type: String, required: true },
+    marks: { type: Number, required: true }, 
+    description: { type: String },
+    instructions: { type: String },
+    isShared: { type: Boolean, default: false },
+    createdBy: {
+            id: { type: mongoose.Schema.Types.ObjectId, ref: "Teacher" },
+            name: { type: String }
+        },
+    status: {
+        type: String,
+        enum: ["Draft","Active", "Closed"],
+        default: "Draft"
+    },
+    difficulty: { 
+        type: String, 
+        enum: ["Easy", "Medium", "Hard"], 
+        default: "Medium" 
+    },
+     progressStatus: {
+        type: String,
+        enum: ["Pending", "Completed"],
+        default: "Pending"
+    },
+    startDate: { type: Date, required: true },     
+    startTime: { type: String, required: true },
+    dueDate: { type: Date, required: true },
+    dueTime: { type: String, required: true }, 
+    submissions: [
+    {
+        studentId: {
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Student',
+        required: true
+        },
+        submittedAt: {
+        type: Date,
+        default: Date.now
+        },
+        xp: {
+        type: Number,
+        default: 0
+        },
+        status: {
+        type: String,
+        enum: ["Submitted", "Not Submitted"],
+        default: "Submitted"
+        },
+        code: { // Submitted code as a string
+                type: String,
+                required: true 
+        },
+        isLate: {
+                type: Boolean,
+                default: false
+        },
+        results: [ // Detailed test case results (optional but helpful)
+                {
+                    taskId: Number,
+                    passed: Boolean,
+                    score: Number
+                }
+        ]
+    }
+    ],
+    tasks: { 
+        type: [taskSchema], 
+        validate: {
+            validator: function(v) {
+                // Ensure at least one task is present
+                return v && v.length > 0;
+            },
+            message: 'A lab must contain at least one task.'
+        }
+    } 
 });
 
-// --- 3. Existing Schemas (Using Expanded Lab Schema) ---
-
-// Student schema
-const studentSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  rollNumber: { type: String, required: true },
-  email: { type: String },      // stored but not exposed to frontend
-  password: { type: String },   // stored but not exposed to frontend
-  xp: { type: Number, default: 0 },
-  progress: { type: Number, default: 0 }
-});
-
-// Class schema
+// Class schema (contains labs)
 const classSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  teacher: { type: mongoose.Schema.Types.ObjectId, ref: "Teacher", required: true },
-  students: [studentSchema],
-  labs: [labSchema], // This now uses the expanded labSchema
+    name: { type: String, required: true },
+    teacher: { type: mongoose.Schema.Types.ObjectId, ref: "Teacher", required: true },
+    students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Student' }],
+    labs: [labSchema], 
 });
 
-// Course schema
+// Course schema (main document)
 const courseSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  courseCode: { type: String, required: true, unique: true },
-  status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
-  classes: [classSchema],
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Tenant",
+        required: true,
+        index: true
+    },
+    title: { type: String, required: true },
+    courseCode: { type: String, required: true},
+    status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    classes: [classSchema], 
 }, { timestamps: true });
-
+courseSchema.index(
+  { tenantId: 1, courseCode: 1 },
+  { unique: true }
+);
 export default mongoose.model("Course", courseSchema);

@@ -1,500 +1,415 @@
-// ManageTeachers.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Plus, Edit2, Trash2, User, Loader2, Filter,
   LogOut, Bell, LayoutDashboard, ListChecks, BookOpenCheck, LineChart,
-  CreditCard, MessageSquare, UserCog, X
+  CreditCard, MessageSquare, UserCog, X, ChevronDown, Mail, Briefcase, 
+  Award, FileText, Settings, Eye, CheckSquare, Square, UploadCloud, ToggleLeft, ToggleRight
 } from "lucide-react";
 
 const API_URL = "http://localhost:5000/api/teachers";
 
-const teacherCardVariants = {
+const cardVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: i => ({ opacity: 1, y: 0, transition: { delay: i * 0.05, duration: 0.5 } })
 };
 
 const defaultTeacher = {
-  name: '',
-  email: '',
-  role: '',
-  status: 'Active',
-  courses: [],
-  courseLoad: 0,
-  classes: [],
-  classesLoad: 0,
-  students: 0,
-  coursesStr: '',
-  classesStr: '',
-  department: [],
-  departmentStr: '',
-  password: ''
+  name: '', email: '', role: '', status: 'Active',
+  departmentStr: '', password: ''
 };
 
 const ManageTeachers = () => {
   const navigate = useNavigate();
 
+  // State
   const [teachers, setTeachers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [modalTab, setModalTab] = useState('manual');
   const [CSVFile, setCSVFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [newTeacher, setNewTeacher] = useState({ ...defaultTeacher });
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [filterDepartment, setFilterDepartment] = useState('All');
   const [activeMenu, setActiveMenu] = useState('Manage Teachers');
-
   const [isEditing, setIsEditing] = useState(false);
   const [editingTeacherId, setEditingTeacherId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const fetchTeachers = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await axios.get(API_URL);
-      const normalized = (res.data || []).map(t => ({
-        ...t,
-        courses: t.courses || [],
-        courseLoad: Number(t.courseLoad) || (Array.isArray(t.courses) ? t.courses.length : 0),
-        classes: t.classes || [],
-        classesLoad: Number(t.classesLoad) || (Array.isArray(t.classes) ? t.classes.length : 0),
-        department: t.department || [],
-        students: Number(t.students) || 0,
-        name: t.name ?? '',
-        email: t.email ?? '',
-        role: t.role ?? '',
-        status: t.status ?? 'Active'
-      }));
-      setTeachers(normalized);
+      setTeachers(res.data || []);
     } catch (err) {
-      console.error("Failed to fetch teachers:", err);
+      console.error("Fetch error:", err);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchTeachers();
-  }, [fetchTeachers]);
+  useEffect(() => { fetchTeachers(); }, [fetchTeachers]);
 
-  const safeSetNewTeacher = (updater) => {
-    setNewTeacher(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
-      return {
-        name: next.name ?? '',
-        email: next.email ?? '',
-        role: next.role ?? '',
-        status: next.status ?? 'Active',
-        courses: Array.isArray(next.courses) ? next.courses : (next.coursesStr ?? '').split(',').map(x => x.trim()).filter(Boolean),
-        courseLoad: Number(next.courseLoad) || (Array.isArray(next.courses) ? next.courses.length : (next.coursesStr ? next.coursesStr.split(',').filter(Boolean).length : 0)),
-        classes: Array.isArray(next.classes) ? next.classes : (next.classesStr ?? '').split(',').map(x => x.trim()).filter(Boolean),
-        classesLoad: Number(next.classesLoad) || (Array.isArray(next.classes) ? next.classes.length : (next.classesStr ? next.classesStr.split(',').filter(Boolean).length : 0)),
-        department: Array.isArray(next.department) ? next.department : (next.departmentStr ?? '').split(',').map(x => x.trim()).filter(Boolean),
-        students: next.students === '' ? 0 : Number(next.students) || 0,
-        coursesStr: next.coursesStr ?? '',
-        classesStr: next.classesStr ?? '',
-        departmentStr: next.departmentStr ?? '',
-        password: next.password ?? ''
-      };
-    });
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate("/login", { replace: true });
+  };
+
+  const toggleSelection = (e, id) => {
+    e.stopPropagation();
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  // --- NEW: SELECT ALL HANDLER ---
+  const handleSelectAll = () => {
+    if (selectedIds.length === filteredTeachers.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredTeachers.map(t => t._id));
+    }
+  };
+
+  const handleCSVUpload = async () => {
+    if (!CSVFile) return alert("Please select a CSV file first.");
+    const formData = new FormData();
+    formData.append("file", CSVFile);
+    setIsUploading(true);
+    try {
+      const res = await axios.post(`${API_URL}/bulk`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      alert(res.data.message || "Batch upload successful!");
+      setCSVFile(null);
+      setShowAddModal(false);
+      fetchTeachers();
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert(err.response?.data?.message || "Bulk upload failed.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSaveTeacher = async () => {
-    if (!newTeacher.name?.trim() || !newTeacher.email?.trim() || !newTeacher.role?.trim()) {
-      return alert("Please fill all required fields (name, email, role).");
+    if (!newTeacher.name || !newTeacher.email || !newTeacher.role) {
+      return alert("Required: Name, Email, Role");
     }
-
-    const courseArray = newTeacher.coursesStr
-      ? newTeacher.coursesStr.split(',').map(c => c.trim()).filter(c => c)
-      : [];
-    const classArray = newTeacher.classesStr
-      ? newTeacher.classesStr.split(',').map(c => c.trim()).filter(c => c)
-      : [];
-    const departmentArray = newTeacher.departmentStr
-      ? newTeacher.departmentStr.split(',').map(d => d.trim()).filter(d => d)
-      : [];
-
     const payload = {
-      name: newTeacher.name.trim(),
-      email: newTeacher.email.trim(),
-      role: newTeacher.role.trim(),
-      status: newTeacher.status ?? 'Active',
-      courses: courseArray,
-      courseLoad: courseArray.length,
-      classes: classArray,
-      classesLoad: classArray.length,
-      department: departmentArray,
-      students: Number(newTeacher.students) || 0,
-      password: newTeacher.password?.trim() || undefined
+      ...newTeacher,
+      department: typeof newTeacher.departmentStr === 'string' 
+        ? newTeacher.departmentStr.split(',').map(s => s.trim()).filter(Boolean) 
+        : [],
     };
-
     try {
       if (isEditing) {
-        const res = await axios.put(`${API_URL}/${editingTeacherId}`, payload);
-        setTeachers(prev => prev.map(t => t._id === editingTeacherId ? res.data : t));
-        setIsEditing(false);
-        setEditingTeacherId(null);
+        await axios.put(`${API_URL}/${editingTeacherId}`, payload);
       } else {
-        const res = await axios.post(API_URL, payload);
-        setTeachers(prev => [res.data, ...prev]);
+        await axios.post(API_URL, payload);
       }
-      setNewTeacher({ ...defaultTeacher });
+      fetchTeachers();
       setShowAddModal(false);
+      setNewTeacher({ ...defaultTeacher });
     } catch (err) {
-      console.error("Failed to save teacher:", err);
-      alert("Failed to save teacher.");
+      alert("Error saving teacher to database");
     }
   };
 
-  const handleDeleteTeacher = async id => {
-    if (!window.confirm("Are you sure you want to delete this teacher?")) return;
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selectedIds.length} selected teachers permanently?`)) return;
+    try {
+      await Promise.all(selectedIds.map(id => axios.delete(`${API_URL}/${id}`)));
+      setTeachers(prev => prev.filter(t => !selectedIds.includes(t._id)));
+      setSelectedIds([]);
+      alert("Batch deletion successful");
+    } catch (err) {
+      alert("Error during bulk delete");
+    }
+  };
+
+  const handleDeleteTeacher = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this teacher permanently?")) return;
     try {
       await axios.delete(`${API_URL}/${id}`);
       setTeachers(prev => prev.filter(t => t._id !== id));
+      setSelectedIds(prev => prev.filter(i => i !== id));
     } catch (err) {
-      console.error("Failed to delete teacher:", err);
-      alert("Failed to delete teacher.");
+      alert("Delete failed");
     }
   };
 
-  const handleEditTeacher = t => {
+  const handleEditTeacher = (e, t) => {
+    e.stopPropagation();
     setNewTeacher({
-      name: t.name ?? '',
-      email: t.email ?? '',
-      role: t.role ?? '',
-      status: t.status ?? 'Active',
-      courses: t.courses || [],
-      courseLoad: t.courseLoad || (t.courses ? t.courses.length : 0),
-      classes: t.classes || [],
-      classesLoad: t.classesLoad || (t.classes ? t.classes.length : 0),
-      department: t.department || [],
-      departmentStr: Array.isArray(t.department) ? t.department.join(', ') : '',
-      students: t.students || 0,
-      coursesStr: Array.isArray(t.courses) ? t.courses.join(', ') : '',
-      classesStr: Array.isArray(t.classes) ? t.classes.join(', ') : '',
+      ...t,
+      departmentStr: t.department?.join(', ') || '',
       password: ''
     });
-    setIsEditing(true);
     setEditingTeacherId(t._id);
+    setIsEditing(true);
     setModalTab('manual');
     setShowAddModal(true);
   };
 
-  const handleCSVUpload = f => setCSVFile(f);
-
-  const detectDelimiterFromHeader = headerLine => {
-    if (headerLine.indexOf('\t') !== -1) return '\t';
-    if (headerLine.indexOf('|') !== -1) return '|';
-    return ',';
+  const handleViewTeacher = (t) => {
+    if (selectedIds.length > 0) return;
+    setSelectedTeacher(t);
+    setShowViewModal(true);
   };
-
-  const parseCSVToObjects = (text) => {
-    const clean = text.replace(/\r/g, '\n').replace(/\n+/g, '\n').trim().replace(/^\uFEFF/, '');
-    if (!clean) return [];
-
-    const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return [];
-
-    const delimiter = detectDelimiterFromHeader(lines[0]);
-    const rawHeaders = lines[0].split(delimiter).map(h => h.trim().replace(/^"(.+(?="$))"$/, '$1'));
-    const headers = rawHeaders.map(h => h.toLowerCase());
-
-    const rows = lines.slice(1).map(line => {
-      const parts = line.split(delimiter).map(p => p.trim().replace(/^"(.+(?="$))"$/, '$1'));
-      const obj = {};
-      for (let i = 0; i < headers.length; i++) {
-        obj[ rawHeaders[i] || headers[i] || `col${i}` ] = parts[i] ?? '';
-      }
-      return obj;
-    });
-
-    return rows;
-  };
-
-  const normalizeParsedRowsForBackend = (rows) => {
-    return rows.map(r => {
-      const lookup = key => {
-        if (r[key] !== undefined) return r[key];
-        const foundKey = Object.keys(r).find(k => k.toLowerCase() === key.toLowerCase());
-        return foundKey ? r[foundKey] : undefined;
-      };
-
-      const rawCourses = lookup('Courses') ?? lookup('courses') ?? '';
-      const rawClasses = lookup('Classes') ?? lookup('classes') ?? '';
-      const rawDepartment = lookup('Department') ?? lookup('department') ?? '';
-
-      const splitList = (s) => {
-        if (!s) return [];
-        const clean = ('' + s).replace(/^"(.+(?="$))"$/, '$1').trim();
-        if (clean.indexOf(';') !== -1) return clean.split(';').map(x => x.trim()).filter(Boolean);
-        if (clean.indexOf('|') !== -1) return clean.split('|').map(x => x.trim()).filter(Boolean);
-        if (clean.indexOf(',') !== -1) return clean.split(',').map(x => x.trim()).filter(Boolean);
-        return clean ? [clean] : [];
-      };
-
-      const coursesArr = splitList(rawCourses);
-      const classesArr = splitList(rawClasses);
-      const departmentArr = splitList(rawDepartment);
-
-      const courseLoadFromCSV = lookup('CourseLoad') ?? lookup('courseLoad') ?? lookup('courseload');
-      const classesLoadFromCSV = lookup('ClassesLoad') ?? lookup('classesLoad') ?? lookup('classesload');
-
-      return {
-        Name: (lookup('Name') ?? lookup('name') ?? '').trim(),
-        Email: (lookup('Email') ?? lookup('email') ?? '').trim(),
-        Role: (lookup('Role') ?? lookup('role') ?? '').trim(),
-        Courses: coursesArr.join(','),
-        CourseLoad: Number(courseLoadFromCSV) || coursesArr.length,
-        Status: (lookup('Status') ?? 'Active') || 'Active',
-        Classes: classesArr.join(','),
-        ClassesLoad: Number(classesLoadFromCSV) || classesArr.length,
-        Students: Number(lookup('Students') ?? 0) || 0,
-        Password: lookup('Password') ?? '',
-        Department: departmentArr
-      };
-    });
-  };
-
-  const handleUploadCSV = async () => {
-    if (!CSVFile) return alert("Please select a CSV file.");
-    const reader = new FileReader();
-
-    reader.onload = async e => {
-      try {
-        const text = e.target.result;
-        const parsed = parseCSVToObjects(text);
-        if (!parsed.length) return alert("CSV appears empty or malformed.");
-        const payload = normalizeParsedRowsForBackend(parsed).filter(r => r.Name && r.Email && r.Role);
-        if (!payload.length) return alert("No valid rows found in CSV (missing Name, Email or Role).");
-        const res = await axios.post(`${API_URL}/bulk`, payload);
-        const created = Array.isArray(res.data.created) ? res.data.created : [];
-        setTeachers(prev => [...created, ...prev]);
-        setShowAddModal(false);
-        setCSVFile(null);
-        alert(`Uploaded ${created.length} teachers successfully.`);
-      } catch (err) {
-        console.error("CSV upload failed:", err);
-        if (err?.response?.data?.message) {
-          alert(`Upload failed: ${err.response.data.message}`);
-        } else {
-          alert("Failed to upload CSV.");
-        }
-      }
-    };
-
-    reader.readAsText(CSVFile);
-  };
-
-  const filteredTeachers = teachers.filter(t => {
-    const q = (searchQuery ?? '').toLowerCase().trim();
-    const matchesSearch = !q || (t.name ?? '').toLowerCase().includes(q) || (t.email ?? '').toLowerCase().includes(q);
-    const matchesStatus = filterStatus === 'All' || t.status === filterStatus;
-    const matchesDept = filterDepartment === 'All' || t.department?.includes(filterDepartment);
-    return matchesSearch && matchesStatus && matchesDept;
-  });
-
-  const getStatusColor = status =>
-    status === 'Active' ? 'bg-emerald-500/10 text-emerald-600 font-semibold' : 'bg-amber-500/10 text-amber-600 font-semibold';
-  const getStatusDotColor = status =>
-    status === 'Active' ? 'bg-emerald-500' : 'bg-amber-500';
 
   const sidebarItems = [
-    { label: 'Dashboard', icon: LayoutDashboard },
-    { label: 'Manage Teachers', icon: ListChecks },
-    { label: 'Manage Courses', icon: BookOpenCheck },
-    { label: 'View Progress', icon: LineChart },
-    { label: 'Payment & Subscription', icon: CreditCard },
-    { label: 'Feedback', icon: MessageSquare },
-    { label: 'Contact Super Admin', icon: UserCog },
+    { label: 'Dashboard', icon: LayoutDashboard, path: '/admin' },
+    { label: 'Manage Teachers', icon: ListChecks, path: '/admin/teachers' },
+    { label: 'Manage Courses', icon: BookOpenCheck, path: '/admin/courses' },
+    { label: 'Reports', icon: FileText, path: '/admin/reports' },
+    { label: 'Competitions', icon: Award, path: '/admin/competitions' },
+    { label: 'View Progress', icon: LineChart, path: '/admin/progress' },
+    { label: 'Billing', icon: CreditCard, path: '/admin/billing' },
+    { label: 'Feedback', icon: MessageSquare, path: '/admin/feedback' },
+    { label: 'Settings', icon: Settings, path: '/admin/settings' },
   ];
 
-  const SidebarItem = ({ icon: Icon, label }) => {
-    const isSelected = activeMenu === label;
-    return (
-      <motion.button
-        onClick={() => {
-          setActiveMenu(label);
-          if (label === 'Manage Teachers') navigate('/admin/teachers');
-          if (label === 'Dashboard') navigate('/admin');
-        }}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-300 ${isSelected ? 'bg-indigo-600/50 text-white' : 'hover:bg-blue-700/50 text-blue-200'}`}
-      >
-        <div className={`p-2 rounded-lg ${isSelected ? 'bg-indigo-700' : 'bg-blue-800/70'}`}>
-          <Icon size={20} className={isSelected ? 'text-white' : 'text-blue-200'} />
-        </div>
-        <span className="font-medium">{label}</span>
-      </motion.button>
-    );
-  };
+  const filteredTeachers = teachers.filter(t => {
+    const matchesSearch = t.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          t.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = filterStatus === 'All' || t.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <aside className="w-72 bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col shadow-2xl">
-        <div className="p-6 border-b border-gray-700/50">
-          <h1 className="text-2xl font-bold text-white">Codezy</h1>
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
+      {/* SIDEBAR */}
+      <aside className="w-72 bg-slate-900 text-white flex flex-col shadow-2xl overflow-y-auto">
+        <div className="p-8 border-b border-slate-800">
+          <h1 className="text-2xl font-black tracking-tight text-indigo-400 uppercase">CODEZY</h1>
         </div>
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          {sidebarItems.map(item => <SidebarItem key={item.label} icon={item.icon} label={item.label} />)}
+        <nav className="flex-1 px-4 py-8 space-y-2">
+          {sidebarItems.map(item => (
+            <button
+              key={item.label}
+              onClick={() => { setActiveMenu(item.label); navigate(item.path); }}
+              className={`w-full flex items-center space-x-4 p-4 rounded-2xl transition-all duration-200 ${
+                activeMenu === item.label ? 'bg-indigo-600 shadow-lg font-black text-white' : 'hover:bg-slate-800 text-slate-400 font-bold'
+              }`}
+            >
+              <item.icon size={18} />
+              <span className="text-[10px] uppercase tracking-widest">{item.label}</span>
+            </button>
+          ))}
         </nav>
-        <a href="/login" className="m-4 bg-red-600 hover:bg-red-700 px-4 py-2 rounded flex items-center justify-center">
+        <button onClick={handleLogout} className="m-6 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white p-4 rounded-2xl flex items-center justify-center font-bold transition-all text-xs uppercase tracking-widest">
           <LogOut size={18} className="mr-2" /> Logout
-        </a>
+        </button>
       </aside>
 
       <main className="flex-1 flex flex-col overflow-y-auto">
-        <header className="w-full bg-white shadow-sm border-b border-gray-200 p-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-800">Admin Dashboard</h1>
-          <div className="flex items-center gap-3">
-            <button className="relative p-2 rounded-full hover:bg-gray-100">
-              <Bell size={20} className="text-gray-600" />
-              <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-            <button className="p-2 rounded-full hover:bg-gray-100">
-              <User size={20} className="text-gray-600" />
-            </button>
+        <header className="bg-white shadow-sm border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-10">
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight ml-4 uppercase">Admin Dashboard</h1>
+          <div className="flex items-center gap-3 mr-4">
+            <button className="relative p-2 rounded-full hover:bg-slate-100 text-slate-600"><Bell size={20} /><span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span></button>
+            <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold uppercase shadow-lg shadow-indigo-200">A</div>
           </div>
         </header>
 
-        <div className="p-6 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-800">Manage Teachers</h1>
-          <motion.button
-            onClick={() => {
-              setModalTab('manual');
-              setNewTeacher({ ...defaultTeacher });
-              setIsEditing(false);
-              setShowAddModal(true);
-            }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-xl shadow flex items-center gap-2 font-semibold"
-          >
-            <Plus size={16} /> Add New Teacher
-          </motion.button>
-        </div>
+        <div className="p-8 pb-32">
+          <div className="flex justify-between items-center mb-8">
+            <div className="text-left">
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Manage Teachers</h2>
+              <p className="text-slate-500 font-medium">Directory of faculty members and profile control</p>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={() => { setIsEditing(false); setNewTeacher({...defaultTeacher}); setShowAddModal(true); }}
+              className="bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all text-sm uppercase tracking-widest"
+            >
+              <Plus size={18} /> ADD NEW TEACHER
+            </motion.button>
+          </div>
 
-        <div className="px-6 flex flex-wrap gap-3 mb-4 items-center">
-          <input type="text" placeholder="Search teachers..." className="flex-1 border px-3 py-2 rounded-lg" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="border px-3 py-2 rounded-lg">
-            <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="On Leave">On Leave</option>
-          </select>
-          <select value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} className="border px-3 py-2 rounded-lg">
-            <option value="All">All Departments</option>
-            {[...new Set(teachers.flatMap(t => t.department || []))].map(dep => (
-              <option key={dep} value={dep}>{dep}</option>
-            ))}
-          </select>
-        </div>
+          <div className="flex flex-wrap gap-4 mb-8 items-center">
+            {/* NEW: Master Select All Checkbox UI */}
+            <button 
+                onClick={handleSelectAll}
+                className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-3 rounded-2xl hover:bg-slate-50 transition-all group"
+            >
+                {selectedIds.length > 0 && selectedIds.length === filteredTeachers.length ? (
+                    <CheckSquare size={20} className="text-indigo-600" />
+                ) : (
+                    <Square size={20} className="text-slate-300 group-hover:text-indigo-400" />
+                )}
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Select All</span>
+            </button>
 
-        {/* Teacher cards */}
-        <div className="px-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <input 
+              type="text" placeholder="Search by name or email..." 
+              className="flex-1 min-w-[300px] bg-white border border-slate-200 px-6 py-3 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium"
+              value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            />
+            <select 
+              className="bg-white border border-slate-200 px-6 py-3 rounded-2xl outline-none font-bold text-slate-600 cursor-pointer"
+              value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            >
+              <option value="All">All Status</option>
+              <option value="Active">Active</option>
+              <option value="On Leave">On Leave</option>
+            </select>
+          </div>
+
           {isLoading ? (
-            <Loader2 size={36} className="animate-spin mx-auto col-span-full" />
+            <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>
           ) : (
-            filteredTeachers.map((t, i) => (
-              <motion.div
-                key={t._id}
-                custom={i}
-                initial="hidden"
-                animate="visible"
-                variants={teacherCardVariants}
-                className="bg-white rounded-xl p-4 shadow relative hover:shadow-lg transition group"
-              >
-                {/* Edit/Delete buttons */}
-                <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition">
-                  <Edit2 size={16} className="cursor-pointer text-blue-600" onClick={() => handleEditTeacher(t)} />
-                  <Trash2 size={16} className="cursor-pointer text-red-600" onClick={() => handleDeleteTeacher(t._id)} />
-                </div>
+            <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {filteredTeachers.map((t, i) => {
+                const isSelected = selectedIds.includes(t._id);
+                return (
+                  <motion.div
+                    key={t._id} custom={i} variants={cardVariants} initial="hidden" animate="visible"
+                    onClick={() => handleViewTeacher(t)}
+                    className={`bg-white rounded-[2rem] border overflow-hidden relative group hover:shadow-2xl transition-all duration-300 cursor-pointer border-l-8 ${t.status === 'Active' ? 'border-l-emerald-500' : 'border-l-orange-500'} ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-50' : 'border-slate-200'}`}
+                  >
+                    <div className="p-8">
+                      <div className="flex justify-between items-start mb-6">
+                        <button 
+                          onClick={(e) => toggleSelection(e, t._id)}
+                          className={`p-2 rounded-xl transition-all ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-300 hover:text-indigo-400'}`}
+                        >
+                          {isSelected ? <CheckSquare size={20} /> : <Square size={20} />}
+                        </button>
+                        <div className="flex gap-2">
+                          <button onClick={(e) => handleEditTeacher(e, t)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"><Edit2 size={16} /></button>
+                          <button onClick={(e) => handleDeleteTeacher(e, t._id)} className="p-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-colors shadow-sm"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
 
-                {/* Basic info */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-3 h-3 rounded-full ${getStatusDotColor(t.status)}`} />
-                    <h2 className="font-bold text-lg">{t.name}</h2>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded ${getStatusColor(t.status)} text-sm`}>{t.status}</span>
-                </div>
-                <p className="text-gray-600 text-sm">{t.email}</p>
-                <p className="text-gray-500 text-sm mt-1 font-medium">Role: {t.role}</p>
+                      <div className="flex items-center gap-5 mb-6">
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl shadow-inner uppercase ${t.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
+                          {t.name?.charAt(0)}
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-800 tracking-tight">{t.name}</h3>
+                          <span className={`text-[10px] uppercase tracking-widest font-black px-2 py-1 rounded-lg ${t.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{t.status}</span>
+                        </div>
+                      </div>
 
-                {/* Interactive collapsible sections */}
-                <div className="mt-2 space-y-1">
-                  {t.department?.length > 0 && (
-                    <details className="bg-indigo-50 p-2 rounded">
-                      <summary className="cursor-pointer font-semibold text-indigo-700">Departments ({t.department.length})</summary>
-                      <ul className="pl-4 mt-1 list-disc text-gray-700">
-                        {t.department.map(d => <li key={d}>{d}</li>)}
-                      </ul>
-                    </details>
-                  )}
-                  {t.courses?.length > 0 && (
-                    <details className="bg-green-50 p-2 rounded">
-                      <summary className="cursor-pointer font-semibold text-green-700">Courses ({t.courseLoad})</summary>
-                      <ul className="pl-4 mt-1 list-disc text-gray-700">
-                        {t.courses.map(c => <li key={c}>{c}</li>)}
-                      </ul>
-                    </details>
-                  )}
-                  {t.classes?.length > 0 && (
-                    <details className="bg-yellow-50 p-2 rounded">
-                      <summary className="cursor-pointer font-semibold text-yellow-700">Classes ({t.classesLoad})</summary>
-                      <ul className="pl-4 mt-1 list-disc text-gray-700">
-                        {t.classes.map(c => <li key={c}>{c}</li>)}
-                      </ul>
-                    </details>
-                  )}
-                </div>
+                      <div className="space-y-3 mb-8 text-slate-500 text-sm font-medium">
+                        <div className="flex items-center truncate"><Mail size={16} className="mr-3 text-indigo-400 flex-shrink-0" /> {t.email}</div>
+                        <div className="flex items-center"><Briefcase size={16} className="mr-3 text-indigo-400 flex-shrink-0" /> {t.role}</div>
+                      </div>
 
-                {/* Students */}
-                <p className="text-gray-600 text-sm mt-2">Students: {t.students}</p>
-              </motion.div>
-            ))
+                      <div className="grid grid-cols-3 gap-3 text-center font-black">
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><div className="text-[9px] text-slate-400 uppercase mb-1">Courses</div><div className="text-lg text-slate-700">{t.courses?.length || 0}</div></div>
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><div className="text-[9px] text-slate-400 uppercase mb-1">Classes</div><div className="text-lg text-slate-700">{t.classes?.length || 0}</div></div>
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><div className="text-[9px] text-slate-400 uppercase mb-1">Students</div><div className="text-lg text-slate-700">{t.students || 0}</div></div>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </motion.div>
           )}
         </div>
+
+        {/* BULK ACTION BAR */}
+        <AnimatePresence>
+          {selectedIds.length > 0 && (
+            <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 shadow-2xl px-8 py-4 rounded-3xl z-50 flex items-center gap-8 border border-slate-700">
+              <div className="flex items-center gap-2"><span className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-black text-xs">{selectedIds.length}</span><span className="text-white font-black text-[10px] uppercase tracking-widest">Selected</span></div>
+              <button onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"><Trash2 size={14} /> DELETE BATCH</button>
+              <button onClick={() => setSelectedIds([])} className="text-slate-400 font-black hover:text-white text-[10px] uppercase tracking-widest transition-colors">CANCEL</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
-      {/* Add/Edit Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/30 flex justify-center items-center z-50">
-          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="bg-white rounded-xl p-6 w-full max-w-xl shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">{isEditing ? 'Edit Teacher' : 'Add Teacher'}</h2>
-              <button onClick={() => setShowAddModal(false)}><X size={20} /></button>
-            </div>
-
-            <div className="flex mb-4 gap-2 border-b">
-              <button className={`flex-1 py-2 ${modalTab === 'manual' ? 'border-b-2 border-blue-700 font-semibold' : ''}`} onClick={() => setModalTab('manual')}>Manual Entry</button>
-              <button className={`flex-1 py-2 ${modalTab === 'csv' ? 'border-b-2 border-blue-700 font-semibold' : ''}`} onClick={() => setModalTab('csv')}>CSV Upload</button>
-            </div>
-
-            {modalTab === 'manual' && (
-              <div className="space-y-3">
-                <input type="text" placeholder="Name" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.name} onChange={e => safeSetNewTeacher(p => ({ ...p, name: e.target.value }))} />
-                <input type="email" placeholder="Email" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.email} onChange={e => safeSetNewTeacher(p => ({ ...p, email: e.target.value }))} />
-                <input type="text" placeholder="Role" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.role} onChange={e => safeSetNewTeacher(p => ({ ...p, role: e.target.value }))} />
-                <input type="text" placeholder="Courses (comma-separated)" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.coursesStr} onChange={e => safeSetNewTeacher(p => ({ ...p, coursesStr: e.target.value }))} />
-                <input type="text" placeholder="Classes (comma-separated)" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.classesStr} onChange={e => safeSetNewTeacher(p => ({ ...p, classesStr: e.target.value }))} />
-                <input type="text" placeholder="Department(s) (comma-separated)" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.departmentStr} onChange={e => safeSetNewTeacher(p => ({ ...p, departmentStr: e.target.value }))} />
-                <input type="number" placeholder="Students" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.students} onChange={e => safeSetNewTeacher(p => ({ ...p, students: e.target.value }))} />
-                <input type="password" placeholder="Password (optional)" className="w-full border px-3 py-2 rounded-lg" value={newTeacher.password} onChange={e => safeSetNewTeacher(p => ({ ...p, password: e.target.value }))} />
-                <button onClick={handleSaveTeacher} className="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-xl mt-2 w-full">{isEditing ? 'Update Teacher' : 'Save Teacher'}</button>
+      {/* ADD/EDIT MODAL */}
+      <AnimatePresence>
+        {showAddModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-[2rem] p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto border-l-[10px] border-indigo-600 relative">
+              <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{isEditing ? 'Modify Profile' : 'Add Teacher'}</h2>
+                <button onClick={() => { setShowAddModal(false); setCSVFile(null); }} className="bg-slate-100 p-2 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={20} /></button>
               </div>
-            )}
 
-            {modalTab === 'csv' && (
-              <div className="space-y-3">
-                <input type="file" accept=".csv" onChange={e => handleCSVUpload(e.target.files[0])} />
-                <button onClick={handleUploadCSV} className="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-xl mt-2 w-full">Upload CSV</button>
+              <div className="flex gap-3 mb-6 bg-slate-100 p-1 rounded-xl">
+                <button className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${modalTab === 'manual' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`} onClick={() => setModalTab('manual')}>MANUAL ENTRY</button>
+                {!isEditing && (
+                   <button className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${modalTab === 'csv' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`} onClick={() => setModalTab('csv')}>CSV UPLOAD</button>
+                )}
               </div>
-            )}
-          </motion.div>
-        </div>
-      )}
+
+              {modalTab === 'manual' ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Full Name</label>
+                      <input type="text" className="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium" value={newTeacher.name} onChange={e => setNewTeacher({...newTeacher, name: e.target.value})} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Email Address</label>
+                      <input type="email" className="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium" value={newTeacher.email} onChange={e => setNewTeacher({...newTeacher, email: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Role</label>
+                      <input type="text" className="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium" value={newTeacher.role} onChange={e => setNewTeacher({...newTeacher, role: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Status</label>
+                      <select 
+                        className="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-xs font-bold text-slate-600 cursor-pointer"
+                        value={newTeacher.status}
+                        onChange={e => setNewTeacher({...newTeacher, status: e.target.value})}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="On Leave">On Leave</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-center pt-4">
+                    <button onClick={handleSaveTeacher} className="w-2/3 bg-slate-900 text-white py-4 rounded-xl font-bold text-xs shadow-xl hover:bg-black transition-all uppercase tracking-[0.2em]">
+                      {isEditing ? 'Commit Updates' : 'Create Teacher'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
+                    <input type="file" id="csv" hidden accept=".csv" onChange={e => setCSVFile(e.target.files[0])} />
+                    <label htmlFor="csv" className="cursor-pointer group">
+                      <div className="bg-indigo-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+                        <UploadCloud size={24} />
+                      </div>
+                      <p className="font-bold text-slate-800 text-sm">{CSVFile ? CSVFile.name : 'Click to select CSV File'}</p>
+                      <p className="text-slate-400 text-[10px] mt-1 uppercase tracking-widest">Required: Name, Email, Role</p>
+                    </label>
+                  </div>
+                  
+                  <div className="flex justify-center">
+                    <button 
+                      onClick={handleCSVUpload}
+                      disabled={!CSVFile || isUploading}
+                      className={`w-2/3 py-4 rounded-xl font-bold text-xs shadow-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 ${
+                        !CSVFile ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      }`}
+                    >
+                      {isUploading ? (
+                        <><Loader2 size={16} className="animate-spin" /> UPLOADING...</>
+                      ) : (
+                        <>START BATCH IMPORT</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

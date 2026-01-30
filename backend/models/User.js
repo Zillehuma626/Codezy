@@ -1,18 +1,50 @@
 import mongoose from "mongoose";
 
-const allowedRoles = ["student", "teacher", "individual_learner", "organization", "admin"];
-
 const userSchema = new mongoose.Schema({
-  fullName: { type: String, required: true },
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }, 
+  fullName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  username: {
+    type: String,
+    unique: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 8
+  },
   role: {
     type: String,
-    enum: allowedRoles,
-    default: "student"
+    enum: ["individual_learner"],
+    default: "individual_learner"
   },
-  createdAt: { type: Date, default: Date.now }
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Tenant",
+    required: true
+  },
+  mfaEnabled: {
+    type: Boolean,
+    default: false
+  },
+  mfaSecret: {
+    type: String
+  },
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
 });
+
+userSchema.index({ tenantId: 1 }); 
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ username: 1 }, { unique: true });
 
 export default mongoose.model("User", userSchema);

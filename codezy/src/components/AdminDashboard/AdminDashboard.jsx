@@ -87,7 +87,18 @@ const AdminDashboard = () => {
       ]
     }
   ];
+const handleLogout = () => {
+    // 1. Clear Local Storage
+    try {
+      localStorage.clear();
+      console.log("Local storage cleared upon logout.");
+    } catch (error) {
+      console.error("Could not clear local storage:", error);
+    }
 
+    // 2. Navigate to the login page
+    navigate('/login');
+  };
   const handleMenuItemClick = (label) => {
     setActiveMenu(label);
     if (isMobile) setSidebarOpen(false);
@@ -226,20 +237,22 @@ const AdminDashboard = () => {
         </nav>
 
         {/* Logout Button */}
-        <div className="p-4 border-t border-gray-700/50">
-          <a href="/login" className="block">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-red-600 hover:bg-red-700 shadow-md text-white transition-all"
-            >
-              <div className="p-2 bg-red-700/50 rounded-lg flex items-center justify-center">
-                <LogOut size={20} />
-              </div>
-              <span className="font-medium">Logout</span>
-            </motion.button>
-          </a>
-        </div>
+       {/* Logout Button (MODIFIED SECTION) */}
+        <div className="p-4 border-t border-gray-700/50">
+          {/* Removed <a> tag and its href. The navigation is now handled by handleLogout via React Router. */}
+          <motion.button
+            // The key change: attach the logout function to onClick
+            onClick={handleLogout} 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-red-600 hover:bg-red-700 shadow-md text-white transition-all"
+          >
+            <div className="p-2 bg-red-700/50 rounded-lg flex items-center justify-center">
+              <LogOut size={20} />
+            </div>
+            <span className="font-medium">Logout</span>
+          </motion.button>
+        </div>
       </motion.div>
 
       {/* Main content */}

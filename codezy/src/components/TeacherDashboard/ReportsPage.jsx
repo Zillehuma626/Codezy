@@ -158,7 +158,7 @@ const Reports = () => {
               </motion.div>
             </div>
             <div className="hidden md:flex space-x-8 font-medium">
-              <a href="/dashboard" className="hover:text-indigo-600 transition">
+              <a href="/teacher" className="hover:text-indigo-600 transition">
                 Dashboard
               </a>
               <a href="/mycourses" className="hover:text-indigo-600 transition">
@@ -173,7 +173,7 @@ const Reports = () => {
               <a href="profile" className="hover:text-indigo-600 transition">
                 Profile
               </a>
-              <a href="loginpage" className="hover:text-indigo-600 transition">
+              <a href="login" className="hover:text-indigo-600 transition">
                 Logout
               </a>
             </div>

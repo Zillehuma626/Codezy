@@ -1,334 +1,306 @@
 import express from "express";
 import Course from "../models/Course.js";
+import mongoose from "mongoose";
+import Teacher from "../models/Teacher.js";
+import Student from "../models/Students.js";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
-// Get all courses
-router.get("/", async (req, res) => {
-  try {
-    const courses = await Course.find();
-    res.json(courses);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+/* ========================
+   AUTH CONTEXT
+======================== */
+const getAuthContext = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) throw new Error("No token provided");
 
-// Get course by ID
-router.get("/:id", async (req, res) => {
-  try {
-    const course = await Course.findById(req.params.id).populate("classes.students");
-    if (!course) return res.status(404).json({ message: "Course not found" });
-    res.json(course);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+  const token = authHeader.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-/* ------------------------
-   ADD NEW COURSE
-------------------------- */
+  return {
+    tenantId: decoded.tenantId,
+    userId: decoded.userId,
+    role: decoded.role
+  };
+};
+
+/* ========================
+   TEACHER STATS (TENANT SAFE)
+======================== */
+const syncTeacherStats = async (teacherId, tenantId) => {
+  if (!teacherId || !mongoose.Types.ObjectId.isValid(teacherId)) return;
+
+  const stats = await Course.aggregate([
+    { $match: { tenantId } },
+    { $unwind: "$classes" },
+    { $match: { "classes.teacher": new mongoose.Types.ObjectId(teacherId) } },
+    {
+      $group: {
+        _id: "$classes.teacher",
+        uniqueCourses: { $addToSet: "$_id" },
+        classNames: { $addToSet: "$classes.name" },
+        totalStudents: {
+          $sum: { $size: { $ifNull: ["$classes.students", []] } }
+        }
+      }
+    }
+  ]);
+
+  const payload = stats[0] || {
+    uniqueCourses: [],
+    classNames: [],
+    totalStudents: 0
+  };
+
+  await Teacher.findByIdAndUpdate(teacherId, {
+    courses: payload.uniqueCourses,
+    classes: payload.classNames,
+    courseLoad: payload.uniqueCourses.length,
+    classesLoad: payload.classNames.length,
+    students: payload.totalStudents
+  });
+};
+
+/* ========================
+   COURSES
+======================== */
+
+// CREATE COURSE
 router.post("/", async (req, res) => {
-  try {
-    const { title, courseCode, classes } = req.body;
+  try {
+    const { tenantId } = getAuthContext(req);
+    const { title, courseCode, classes } = req.body;
 
-    // Basic validation
-    if (!title || !courseCode) {
-      return res.status(400).json({ message: "Title and Course Code are required" });
-    }
+    const course = await Course.create({
+      title,
+      courseCode,
+      classes: classes || [],
+      tenantId
+    });
 
-    const newCourse = new Course({
-      title,
-      courseCode,
-      classes: classes || [] // optional, empty array if none provided
-    });
+    const teacherIds = [...new Set((classes || []).map(c => c.teacher).filter(Boolean))];
+    for (const t of teacherIds) {
+      await syncTeacherStats(t, tenantId);
+    }
 
-    await newCourse.save();
-    res.status(201).json({ message: "Course created successfully", course: newCourse });
-
-  } catch (err) {
-    console.error("Error creating course:", err);
-    res.status(500).json({ message: "Server error while creating course" });
-  }
+    res.status(201).json(course);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
+// UPDATE COURSE
+router.put("/:id", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
+    const courseId = req.params.id;
 
-/* ------------------------
-   GET COURSES ASSIGNED TO A TEACHER
-------------------------- */
-router.get("/teacher/:teacherId", async (req, res) => {
-  try {
-    const { teacherId } = req.params;
-    const courses = await Course.find({
-      classes: { $elemMatch: { teacher: teacherId } }
-    }).lean();
+    const oldCourse = await Course.findOne({ _id: courseId, tenantId });
+    if (!oldCourse) return res.status(404).json({ message: "Course not found" });
 
-    if (!courses.length) return res.status(200).json([]);
+    const teachersBefore = [...new Set(oldCourse.classes.map(c => c.teacher?.toString()).filter(Boolean))];
 
-    const response = courses.map(course => ({
-      _id: course._id,
-      title: course.title,
-      courseCode: course.courseCode,
-      classes: course.classes
-        .filter(cls => cls.teacher?.toString() === teacherId)
-        .map(cls => ({
-          _id: cls._id,
-          name: cls.name,
-          students: cls.students || [],
-          labs: cls.labs || []
-        }))
-    }));
+    const updatedCourse = await Course.findOneAndUpdate(
+      { _id: courseId, tenantId },
+      req.body,
+      { new: true }
+    );
 
-    res.json(response);
+    const teachersAfter = [...new Set(updatedCourse.classes.map(c => c.teacher?.toString()).filter(Boolean))];
+    const affected = [...new Set([...teachersBefore, ...teachersAfter])];
 
-  } catch (error) {
-    console.error("Error fetching teacher courses:", error);
-    res.status(500).json({ error: "Server error" });
-  }
+    for (const t of affected) {
+      await syncTeacherStats(t, tenantId);
+    }
+
+    res.json(updatedCourse);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-/* ------------------------
-   GET ALL STUDENTS OF CLASS
-------------------------- */
+// DELETE COURSE
+router.delete("/:id", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
+
+    const course = await Course.findOne({ _id: req.params.id, tenantId });
+    if (!course) return res.status(404).json({ message: "Course not found" });
+
+    for (const cls of course.classes) {
+      if (cls.teacher) {
+        await syncTeacherStats(cls.teacher, tenantId);
+      }
+    }
+
+    await Course.findOneAndDelete({ _id: req.params.id, tenantId });
+    res.json({ message: "Course deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET ALL COURSES
+router.get("/", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
+    const courses = await Course.find({ tenantId }).lean();
+    res.json(courses);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ========================
+   STUDENTS
+======================== */
+
+// ADD STUDENTS
+router.post("/:courseId/classes/:classId/students", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
+    const { courseId, classId } = req.params;
+    const { students } = req.body;
+
+    const ids = [];
+
+    for (const s of students) {
+      const hashed = await bcrypt.hash(s.password || "123456", 10);
+
+      const doc = await Student.findOneAndUpdate(
+        { email: s.email, tenantId },
+        {
+          ...s,
+          password: hashed,
+          tenantId,
+          course: courseId,
+          classId
+        },
+        { upsert: true, new: true }
+      );
+
+      ids.push(doc._id);
+    }
+
+    await Course.findOneAndUpdate(
+      { _id: courseId, tenantId, "classes._id": classId },
+      { $addToSet: { "classes.$.students": { $each: ids } } }
+    );
+
+    res.json({ message: "Students added" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET CLASS STUDENTS
 router.get("/:courseId/classes/:classId/students", async (req, res) => {
-  try {
-    const { courseId, classId } = req.params;
+  try {
+    const { tenantId } = getAuthContext(req);
 
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
+    const course = await Course.findOne({
+      _id: req.params.courseId,
+      tenantId
+    }).populate("classes.students");
 
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
+    if (!course) return res.status(404).json({ message: "Course not found" });
 
-    res.json(cls.students || []);
-  } catch (err) {
-    console.error("Error fetching students:", err);
-    res.status(500).json({ message: "Server error fetching students" });
-  }
+    const cls = course.classes.id(req.params.classId);
+    res.json(cls?.students || []);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-/* ------------------------
-   ADD STUDENTS TO CLASS
-------------------------- */
-router.post('/:courseId/classes/:classId/students', async (req, res) => {
-  try {
-    const { courseId, classId } = req.params;
-    const { students } = req.body;
+/* ========================
+   TEACHER COURSES
+======================== */
+router.get("/teacher/:teacherId", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
 
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: 'Course not found' });
+    const courses = await Course.find({
+      tenantId,
+      "classes.teacher": req.params.teacherId
+    }).lean();
 
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: 'Class not found' });
-
-    const addedStudents = [];
-
-    students.forEach(s => {
-      const newStudent = {
-        name: s.name,
-        rollNumber: s.rollNumber,
-        email: s.email,
-        password: s.password,
-        xp: s.xp || 0,
-        progress: s.progress || 0,
-      };
-      cls.students.push(newStudent);
-      addedStudents.push(cls.students.at(-1));
-    });
-
-    await course.save();
-    res.json({ students: addedStudents });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error while adding students' });
-  }
+    res.json(courses);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-/* ------------------------
-   UPDATE SINGLE STUDENT
-------------------------- */
-router.put("/:courseId/classes/:classId/students/:studentId", async (req, res) => {
-  try {
-    const { courseId, classId, studentId } = req.params;
-    const updatedData = req.body;
+/* ========================
+   LABS & SUBMISSIONS
+======================== */
 
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
+// GET SUBMISSIONS
+router.get("/:courseId/classes/:classId/labs/:labId/submissions", async (req, res) => {
+  try {
+    const { tenantId } = getAuthContext(req);
 
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
+    const course = await Course.findOne({
+      _id: req.params.courseId,
+      tenantId
+    }).populate("classes.students", "name rollNumber");
 
-    const student = cls.students.id(studentId);
-    if (!student) return res.status(404).json({ message: "Student not found" });
+    if (!course) return res.status(404).json({ message: "Course not found" });
 
-    Object.assign(student, updatedData);
-    await course.save();
+    const cls = course.classes.id(req.params.classId);
+    const lab = cls.labs.id(req.params.labId);
 
-    res.json({ message: "Student updated successfully", student });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error while updating student" });
-  }
+    res.json(
+      cls.students.map(st => {
+        const sub = lab.submissions.find(s => s.studentId.equals(st._id));
+        return {
+          studentId: st._id,
+          name: st.name,
+          rollNumber: st.rollNumber,
+          submitted: !!sub,
+          xp: sub?.xp || 0,
+          status: sub?.status || "Not Submitted"
+        };
+      })
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-/* ------------------------
-   DELETE SINGLE STUDENT
-------------------------- */
-router.delete("/:courseId/classes/:classId/students/:studentId", async (req, res) => {
-  try {
-    const { courseId, classId, studentId } = req.params;
-
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
-
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    const student = cls.students.id(studentId);
-    if (!student) return res.status(404).json({ message: "Student not found" });
-
-    student.remove();
-    await course.save();
-
-    res.json({ message: "Student deleted successfully", studentId });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error while deleting student" });
-  }
-});
-
-/* ------------------------
-   DELETE ALL STUDENTS IN CLASS
-------------------------- */
-router.delete("/:courseId/classes/:classId/students", async (req, res) => {
-  try {
-    const { courseId, classId } = req.params;
-
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
-
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    cls.students = [];
-    await course.save();
-
-    res.json({ message: "All students deleted successfully" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error while deleting all students" });
-  }
-});
-
-/* ------------------------
-   GET ALL LABS FOR A CLASS
-------------------------- */
-router.get("/:courseId/classes/:classId/labs", async (req, res) => {
-  try {
-    const { courseId, classId } = req.params;
-
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
-
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    res.json(cls.labs || []);
-  } catch (err) {
-    console.error("Error fetching labs:", err);
-    res.status(500).json({ message: "Server error fetching labs" });
-  }
-});
-
-/* ------------------------
-   ADD LAB TO CLASS
-    (Handles the full complex lab object via req.body)
-------------------------- */
+// CREATE LAB
 router.post("/:courseId/classes/:classId/labs", async (req, res) => {
-  try {
-    const { courseId, classId } = req.params;
-    const complexLabPayload = req.body; // Full payload containing tasks, testCases, etc.
+  try {
+    const { tenantId } = getAuthContext(req);
 
-    // Basic validation based on the schema and frontend requirements
-    if (!complexLabPayload.title || !complexLabPayload.marks || !complexLabPayload.tasks || complexLabPayload.tasks.length === 0) {
-      return res.status(400).json({ message: "Lab must have a title, total marks, and at least one task." });
-    }
+    const course = await Course.findOneAndUpdate(
+      { _id: req.params.courseId, tenantId, "classes._id": req.params.classId },
+      { $push: { "classes.$.labs": { ...req.body, submissions: [] } } },
+      { new: true }
+    );
 
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
+    if (!course) return res.status(404).json({ message: "Not found" });
 
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    // Mongoose automatically validates and embeds the entire complex object 
-    // including tasks, testCases, and codeConstraints.
-    cls.labs.push(complexLabPayload);
-    await course.save();
-
-    res.json({ message: "Complex Lab added successfully", lab: cls.labs.at(-1) });
-  } catch (err) {
-    console.error("Error adding lab:", err);
-    // Ensure a meaningful error response, especially for validation errors
-    res.status(500).json({ message: `Server error adding lab: ${err.message}` });
-  }
+    res.status(201).json({ message: "Lab added" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-/* ------------------------
-   UPDATE LAB
-------------------------- */
-router.put("/:courseId/classes/:classId/labs/:labId", async (req, res) => {
-  try {
-    const { courseId, classId, labId } = req.params;
-    const updatedData = req.body;
-
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
-
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    const lab = cls.labs.id(labId);
-    if (!lab) return res.status(404).json({ message: "Lab not found" });
-
-    Object.assign(lab, updatedData);
-    await course.save();
-
-    res.json({ message: "Lab updated successfully", lab });
-
-  } catch (err) {
-    console.error("Error updating lab:", err);
-    res.status(500).json({ message: "Server error updating lab" });
-  }
-});
-
-/* ------------------------
-   DELETE LAB
-------------------------- */
+// DELETE LAB
 router.delete("/:courseId/classes/:classId/labs/:labId", async (req, res) => {
-  try {
-    const { courseId, classId, labId } = req.params;
+  try {
+    const { tenantId } = getAuthContext(req);
 
-    const course = await Course.findById(courseId);
-    if (!course) return res.status(404).json({ message: "Course not found" });
+    await Course.updateOne(
+      { _id: req.params.courseId, tenantId, "classes._id": req.params.classId },
+      { $pull: { "classes.$.labs": { _id: req.params.labId } } }
+    );
 
-    const cls = course.classes.id(classId);
-    if (!cls) return res.status(404).json({ message: "Class not found" });
-
-    const lab = cls.labs.id(labId);
-    if (!lab) return res.status(404).json({ message: "Lab not found" });
-
-    lab.remove();
-    await course.save();
-
-    res.json({ message: "Lab deleted successfully", labId });
-
-  } catch (err) {
-    console.error("Error deleting lab:", err);
-    res.status(500).json({ message: "Server error deleting lab" });
-  }
+    res.json({ message: "Lab deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 export default router;

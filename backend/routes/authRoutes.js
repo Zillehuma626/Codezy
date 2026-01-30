@@ -2,151 +2,346 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
-import Teacher from "../models/Teacher.js"; // assuming you have a Teacher model
-import Course from "../models/Course.js"; // import your Course model
+import Teacher from "../models/Teacher.js";
+import speakeasy from "speakeasy";
+import Tenant from "../models/Tenant.js";
+import Institution from "../models/Institution.js";
+import crypto from "crypto";
+import transporter from "../config/mailer.js";
 
 const router = express.Router();
 
-// -----------------------------
-// REGISTER API (for Users only)
-// -----------------------------
-router.post("/register", async (req, res) => {
-  try {
-    const { fullName, username, email, password, role } = req.body;
+import Student from "../models/Students.js";
 
-    if (!fullName || !username || !email || !password) {
-      return res.status(400).json({ message: "Please fill all required fields" });
-    }
-
-    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
-    const existingTeacher = await Teacher.findOne({ $or: [{ username }, { email }] });
-
-    if (existingUser || existingTeacher) {
-      return res.status(400).json({ message: "Username or email already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newUser = await User.create({
-      fullName,
-      username,
-      email,
-      password: hashedPassword,
-      role: role || "student",
-    });
-
-    const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
-
-    return res.status(201).json({
-      message: "User registered successfully",
-      token,
-      userId: newUser._id,
-      email: newUser.email,
-      fullName: newUser.fullName,
-      role: newUser.role,
-    });
-
-  } catch (err) {
-    console.error("REGISTER ERROR:", err);
-    return res.status(500).json({ message: "Server error during registration" });
-  }
-});
-
-// -----------------------------
-// LOGIN API
-// -----------------------------
-// LOGIN API
-// -----------------------------
+// ======================== LOGIN ========================
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
-      return res.status(400).json({ message: "Please provide email and password" });
+      return res.status(400).json({ message: "Email and password required" });
     }
 
-    // 1️⃣ Check Teacher collection first
-    let user = await Teacher.findOne({ $or: [{ email }, { username: email }] });
-    let detectedRole = "teacher";
+    const searchEmail = email.toLowerCase();
+    let user = null;
+    let detectedRole = null;
+
+    // 1️⃣ Teacher
+    user = await Teacher.findOne({ email: searchEmail });
+    if (user) detectedRole = "teacher";
+
+    // 2️⃣ Student
+    if (!user) {
+      user = await Student.findOne({ email: searchEmail });
+      if (user) detectedRole = "student";
+    }
+
+    // 3️⃣ Individual Learners (multi-tenant)
+    if (!user) {
+      user = await User.findOne({ email: searchEmail });
+      if (user) detectedRole = user.role;
+    }
+
+    // 4️⃣ Institution Admin
+    if (!user) {
+      user = await Institution.findOne({ adminEmail: searchEmail }).select("+password");
+      if (user) detectedRole = "institution_admin";
+    }
 
     if (!user) {
-      // 2️⃣ Check User collection next
-      user = await User.findOne({ $or: [{ email }, { username: email }] });
-
-      if (!user) {
-        console.log("Searching in courses for student:", email);
-        const courses = await Course.find({ "classes.students.email": email });
-        let student = null;
-        let courseId = null;
-        let classId = null;
-
-        for (const course of courses) {
-          for (const cls of course.classes) {
-            const stud = cls.students.find(s => s.email === email);
-            if (stud) {
-              student = stud;
-              courseId = course._id;
-              classId = cls._id;
-              break;
-            }
-          }
-          if (student) break;
-        }
-
-        if (!student) {
-          return res.status(404).json({ message: "User not found. Please register first." });
-        }
-
-        // ✅ Plain-text password check for students
-        if (student.password !== password) {
-          return res.status(401).json({ message: "Incorrect password" });
-        }
-
-        const token = jwt.sign(
-          { userId: student._id, role: "student", courseId, classId },
-          process.env.JWT_SECRET,
-          { expiresIn: "7d" }
-        );
-
-        return res.json({
-          message: "Login successful",
-          token,
-          userId: student._id,
-          email: student.email,
-          fullName: student.name,
-          role: "student",
-          courseId,
-          classId
-        });
-      }
-
-      detectedRole = user.role;
+      return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // If Teacher or User, use bcrypt
+    if (!user.password) {
+      console.error("Password missing for user:", user._id);
+      return res.status(500).json({ message: "Authentication error" });
+    }
+
+    // 5️⃣ Password check
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
+    if (!isMatch) {
       return res.status(401).json({ message: "Incorrect password" });
+    }
 
-    const token = jwt.sign(
-      { userId: user._id, role: detectedRole },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // 6️⃣ MFA (Teachers & Students only)
+    const isMfaEnabled =
+      (detectedRole === "teacher" && user.isTwoFactorEnabled) ||
+      (detectedRole === "student" && user.mfaEnabled);
 
-    return res.json({
-      message: "Login successful",
+    if (isMfaEnabled) {
+      return res.json({
+        mfaRequired: true,
+        userId: user._id
+      });
+    }
+
+    // 7️⃣ JWT payload (for all tenant-based users)
+    const payload = {
+      userId: user._id,
+      role: detectedRole,
+      tenantId: user.tenantId || null
+    };
+
+    // ✅ Institution admin subscription check
+    let subscriptionRequired = false;
+    if (detectedRole === "institution_admin" && user.subscription.status !== "active") {
+      subscriptionRequired = true; // flag to frontend
+    }
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+    res.json({
+      message: subscriptionRequired
+        ? "Login successful, subscription pending"
+        : "Login successful",
       token,
       userId: user._id,
-      email: user.email || "",
-      fullName: user.fullName || user.name || "",
+      tenantId: user.tenantId || null,
+      email: user.email,
+      fullName: user.name || user.fullName,
       role: detectedRole,
+      subscriptionRequired // <-- important for frontend redirect
     });
 
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    return res.status(500).json({ message: "Server error during login" });
+    res.status(500).json({ message: "Server error during login" });
   }
 });
+
+// VERIFY 2FA
+router.post("/verify-2fa", async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+    
+    // Check both collections for the user
+    let user = await Teacher.findById(userId) || await Student.findById(userId);
+    
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Determine role and which secret to use
+    const role = user.role || (user.mfaSecret ? "student" : "teacher");
+    const secret = role === "student" ? user.mfaSecret : user.twoFactorSecret;
+
+    const verified = speakeasy.totp.verify({
+      secret: secret,
+      encoding: "base32",
+      token: token,
+      window: 1 // Sync margin
+    });
+
+    if (!verified) return res.status(401).json({ message: "Invalid 2FA code" });
+
+    // Generate JWT after successful MFA verification
+    const jwtToken = jwt.sign(
+      {
+        userId: user._id,
+        role: role,
+        tenantId: user.tenantId || null
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({ 
+      message: "Login successful", 
+      token: jwtToken, 
+      userId: user._id, 
+      role: role,
+      fullName: user.name || user.fullName,
+      email: user.email
+    });
+  } catch (err) {
+    console.error("2FA VERIFY ERROR:", err);
+    res.status(500).json({ message: "2FA error" });
+  }
+});
+
+// ======================== FORGOT PASSWORD ========================
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // 1. Find user in the main collection
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    // For security, don't reveal if a user exists or not
+    if (!user) {
+      return res.json({ message: "If email exists, reset link sent" });
+    }
+
+    // 2. Generate Reset Token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    // 3. Update user fields
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 mins
+
+    // ✅ FIX: Use validateModifiedOnly to bypass the "tenantId is required" error
+    await user.save({ validateModifiedOnly: true });
+
+    // 4. Send Email
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    try {
+      await transporter.sendMail({
+        to: user.email,
+        subject: "Password Reset Request - Codezy",
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
+            <h2 style="color: #4f46e5;">Reset Your Password</h2>
+            <p>We received a request to reset your Codezy account password.</p>
+            <p>Click the button below to proceed:</p>
+            <a href="${resetUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold;">Reset Password</a>
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">This link will expire in 15 minutes. If you did not request this, please ignore this email.</p>
+          </div>
+        `,
+      });
+      
+      res.json({ message: "Password reset link sent" });
+    } catch (mailError) {
+      console.error("MAILER ERROR:", mailError);
+      return res.status(500).json({ message: "Could not send email. Please check server configuration." });
+    }
+
+  } catch (err) {
+    console.error("FORGOT PW ERROR:", err);
+    res.status(500).json({ message: "Server error during password reset request" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  const { token, password } = req.body;
+
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+
+  const user = await User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return res.status(400).json({ message: "Invalid or expired token" });
+  }
+
+  user.password = await bcrypt.hash(password, 12);
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpires = undefined;
+
+  await user.save({ validateModifiedOnly: true });
+
+  res.json({ message: "Password reset successful" });
+});
+
+
+router.post("/register", async (req, res) => {
+  try {
+    const { fullName, username, email, password } = req.body;
+
+    if (!fullName || !username || !email || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    // 1️⃣ Check if email or username exists
+    const existingUser = await User.findOne({
+      $or: [{ email: normalizedEmail }, { username }]
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: "Username or Email already exists" });
+    }
+
+    // 2️⃣ Create tenant for this individual learner
+    const tenant = await Tenant.create({
+      name: `${fullName}'s Workspace`
+    });
+
+    // 3️⃣ Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 4️⃣ Create user with tenantId
+    const newUser = await User.create({
+      fullName,
+      username,
+      email: normalizedEmail,
+      password: hashedPassword,
+      role: "individual_learner",
+      tenantId: tenant._id
+    });
+
+    res.status(201).json({ message: "Registration successful", userId: newUser._id });
+  } catch (err) {
+    console.error("REGISTRATION ERROR:", err);
+    res.status(500).json({ message: "Server error during registration" });
+  }
+});
+
+router.post("/institution/check-email", async (req, res) => {
+  try {
+    const { adminEmail } = req.body;
+    if (!adminEmail) return res.status(400).json({ message: "Email is required" });
+
+    const existingInstitution = await Institution.findOne({ adminEmail: adminEmail.toLowerCase() });
+    res.json({ exists: !!existingInstitution });
+  } catch (err) {
+    console.error("CHECK EMAIL ERROR:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.post("/institution/register", async (req, res) => {
+  try {
+    const { name, adminEmail, password, contactPhone, metadata, plan } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    const existingInstitution = await Institution.findOne({
+      adminEmail: adminEmail.toLowerCase()
+    });
+    if (existingInstitution) {
+      return res.status(400).json({ message: "Admin email already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newInstitution = await Institution.create({
+      tenantId: `INST_${Date.now()}`,
+      type: "institution",
+      name,
+      adminEmail: adminEmail.toLowerCase(),
+      password: hashedPassword,
+      contactPhone,
+      metadata,
+      subscription: {
+        plan: plan || "free",
+        status: "pending"
+      }
+    });
+
+    res.status(201).json({
+      message: "Institution registered successfully",
+      tenantId: newInstitution.tenantId,
+      institutionId: newInstitution._id
+    });
+  } catch (err) {
+    console.error("INSTITUTION REGISTER ERROR:", err);
+    res.status(500).json({ message: "Server error during institution registration" });
+  }
+});
+
+
 
 export default router;
